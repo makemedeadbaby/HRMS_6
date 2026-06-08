@@ -2,31 +2,66 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'local_notification_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FCM Service — handles token registration and push notification dispatch.
+// FCM Service
 //
-// Push delivery uses Firestore to store tokens and FCM data messages for
-// targeting. On mobile (Android) the OS delivers the notification; on web
-// the in-app notification centre already covers delivery.
+// Notification display strategy:
+//
+//  ┌─────────────────┬──────────────────────────────────────────────────────┐
+//  │ App state       │ How notification shows                               │
+//  ├─────────────────┼──────────────────────────────────────────────────────┤
+//  │ FOREGROUND      │ FCM onMessage → LocalNotificationService.show()      │
+//  │                 │ (OS won't auto-show when app is open)                │
+//  ├─────────────────┼──────────────────────────────────────────────────────┤
+//  │ BACKGROUND      │ FCM delivers to background isolate                   │
+//  │ (minimized)     │ If msg has notification{} block → OS shows it        │
+//  │                 │ If data-only → background handler calls show()       │
+//  ├─────────────────┼──────────────────────────────────────────────────────┤
+//  │ KILLED          │ OS delivers notification directly using the channel  │
+//  │ (swiped away)   │ declared in AndroidManifest meta-data               │
+//  │                 │ No Flutter code runs — OS handles it completely      │
+//  └─────────────────┴──────────────────────────────────────────────────────┘
+//
+//  Cloud Functions ALWAYS send messages with BOTH notification{} + data{}
+//  so the OS can display them even when the app is fully killed.
 // ─────────────────────────────────────────────────────────────────────────────
+
 class FcmService {
   static FirebaseMessaging get _fcm => FirebaseMessaging.instance;
 
-  // ── Request permission + return the device token ───────────────────────────
+  // ── Request permission + return device token ──────────────────────────────
   static Future<String?> getToken() async {
-    if (kIsWeb) return null; // Web tokens require a VAPID key — skip for mobile
+    if (kIsWeb) return null;
     try {
       final settings = await _fcm.requestPermission(
         alert: true,
         badge: true,
         sound: true,
         provisional: false,
+        announcement: false,
+        carPlay: false,
+        criticalAlert: false,
       );
+
+      if (kDebugMode) {
+        debugPrint('[FCM] Permission: ${settings.authorizationStatus}');
+      }
+
       if (settings.authorizationStatus == AuthorizationStatus.denied) {
         return null;
       }
+
+      // Critical: tell FCM to show notification even when app is foreground
+      await _fcm.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
       final token = await _fcm.getToken();
+      if (kDebugMode) debugPrint('[FCM] Token: ${token?.substring(0, 20)}...');
       return token;
     } catch (e) {
       if (kDebugMode) debugPrint('[FCM] getToken error: $e');
@@ -34,7 +69,7 @@ class FcmService {
     }
   }
 
-  // ── Save / update FCM token for an employee document in Firestore ──────────
+  // ── Save / refresh FCM token in Firestore ─────────────────────────────────
   static Future<void> saveTokenToFirestore({
     required String employeeId,
     required String token,
@@ -46,20 +81,65 @@ class FcmService {
           .doc(employeeId)
           .update({'fcm_token': token});
       if (kDebugMode) debugPrint('[FCM] Token saved for $employeeId');
-    } catch (e) {
-      // Document may not exist yet — try set with merge
+    } catch (_) {
       try {
         await FirebaseFirestore.instance
             .collection('employees')
             .doc(employeeId)
             .set({'fcm_token': token}, SetOptions(merge: true));
       } catch (e2) {
-        if (kDebugMode) debugPrint('[FCM] saveTokenToFirestore error: $e2');
+        if (kDebugMode) debugPrint('[FCM] saveToken error: $e2');
       }
     }
   }
 
-  // ── Collect FCM tokens for target audience ─────────────────────────────────
+  // ── Register background message handler ──────────────────────────────────
+  // MUST be called before runApp() — before Firebase.initializeApp() even.
+  static void setupBackgroundHandler() {
+    if (kIsWeb) return;
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  }
+
+  // ── Foreground handler — show heads-up banner via local notifications ─────
+  static void setupForegroundHandler({
+    void Function(RemoteMessage)? onMessage,
+  }) {
+    if (kIsWeb) return;
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      if (kDebugMode) {
+        debugPrint('[FCM] FOREGROUND message: '
+            '${message.notification?.title} | type=${message.data["type"]}');
+      }
+
+      // Show the notification as a heads-up banner
+      LocalNotificationService.showFromRemoteMessage(message);
+
+      // Call any extra handler (e.g. refresh UI)
+      onMessage?.call(message);
+    });
+  }
+
+  // ── Handle notification tap (app in background, not killed) ──────────────
+  static void setupNotificationOpenHandler({
+    void Function(RemoteMessage)? onOpen,
+  }) {
+    if (kIsWeb) return;
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      if (kDebugMode) {
+        debugPrint('[FCM] Notification tapped: ${message.notification?.title}');
+      }
+      onOpen?.call(message);
+    });
+  }
+
+  // ── Check if app was launched FROM a notification tap (killed state) ──────
+  static Future<RemoteMessage?> getInitialMessage() async {
+    if (kIsWeb) return null;
+    return await _fcm.getInitialMessage();
+  }
+
+  // ── Collect FCM tokens for target audience ────────────────────────────────
   static Future<List<String>> _getTargetTokens({
     required String targetType,
     required String targetValue,
@@ -73,20 +153,19 @@ class FcmService {
         targets = allEmployees;
         break;
       case 'company':
-        targets = allEmployees.where((e) =>
-          e['company_id'] == targetValue ||
-          e['company_name'] == targetValue
-        ).toList();
+        targets = allEmployees
+            .where((e) =>
+                e['company_id'] == targetValue ||
+                e['company_name'] == targetValue)
+            .toList();
         break;
       case 'department':
-        targets = allEmployees.where((e) =>
-          e['department'] == targetValue
-        ).toList();
+        targets =
+            allEmployees.where((e) => e['department'] == targetValue).toList();
         break;
       case 'shift':
-        targets = allEmployees.where((e) =>
-          e['shift_type'] == targetValue
-        ).toList();
+        targets =
+            allEmployees.where((e) => e['shift_type'] == targetValue).toList();
         break;
       case 'individual':
       case 'employee':
@@ -96,27 +175,13 @@ class FcmService {
         targets = [];
     }
 
-    final tokens = <String>[];
-    for (final emp in targets) {
-      final token = (emp['fcm_token'] as String?) ?? '';
-      if (token.isNotEmpty) tokens.add(token);
-    }
-    return tokens;
+    return targets
+        .map((e) => (e['fcm_token'] as String?) ?? '')
+        .where((t) => t.isNotEmpty)
+        .toList();
   }
 
-  // ── Send push notification via FCM using Firestore queue ──────────────────
-  //
-  // Strategy: Write a 'fcm_queue' document in Firestore.
-  // A Cloud Function (or the app itself on next foreground) picks this up.
-  // For immediate delivery on Android, we also use the FCM REST API directly
-  // via the Firestore-based approach.
-  //
-  // Since we don't have a server-side Cloud Function deployed, we use the
-  // Firestore 'notifications' collection which the app reads on launch.
-  // The actual push is sent by writing to 'fcm_send_queue' which can be
-  // processed by a Cloud Function, OR we use the local notification display
-  // approach for in-app delivery plus the OS notification for background.
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Send push notification via Firestore queue (processed by Cloud Fn) ────
   static Future<void> sendPushToTargets({
     required String title,
     required String message,
@@ -136,13 +201,12 @@ class FcmService {
 
       if (tokens.isEmpty) {
         if (kDebugMode) {
-          debugPrint('[FCM] No tokens found for target $targetType:$targetValue');
+          debugPrint('[FCM] No tokens for $targetType:$targetValue');
         }
         return;
       }
 
-      // Write to Firestore fcm_send_queue for Cloud Function processing
-      // Each entry = one batch of tokens + payload
+      // Write to fcm_send_queue — Cloud Function processes instantly
       await FirebaseFirestore.instance.collection('fcm_send_queue').add({
         'title': title,
         'body': message,
@@ -162,42 +226,7 @@ class FcmService {
     }
   }
 
-  // ── Register background message handler (call from main.dart) ─────────────
-  static void setupBackgroundHandler() {
-    if (kIsWeb) return;
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  }
-
-  // ── Foreground message listener ────────────────────────────────────────────
-  static void setupForegroundHandler({
-    void Function(RemoteMessage)? onMessage,
-  }) {
-    if (kIsWeb) return;
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (kDebugMode) {
-        debugPrint('[FCM] Foreground message: ${message.notification?.title}');
-      }
-      onMessage?.call(message);
-    });
-  }
-
-  // ── Handle notification tap when app is in background/terminated ───────────
-  static void setupNotificationOpenHandler({
-    void Function(RemoteMessage)? onOpen,
-  }) {
-    if (kIsWeb) return;
-    // App opened from notification when in background
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      if (kDebugMode) {
-        debugPrint('[FCM] Notification tapped: ${message.notification?.title}');
-      }
-      onOpen?.call(message);
-    });
-  }
-
-  /// Encode token data for passing between isolates
   static String encodeTokenList(List<String> tokens) => jsonEncode(tokens);
-
   static List<String> decodeTokenList(String encoded) {
     try {
       return List<String>.from(jsonDecode(encoded) as List);
@@ -207,11 +236,21 @@ class FcmService {
   }
 }
 
-// ── Top-level background handler (must be top-level function) ─────────────────
+// ── Top-level background handler ──────────────────────────────────────────────
+// Runs in a SEPARATE ISOLATE when app is in background but NOT killed.
+// Must be a top-level function (not a class method).
+// Firebase is auto-initialized by FlutterFire before this runs.
+//
+// IMPORTANT: For killed state, the OS handles the notification display
+// automatically using the notification{} block in the FCM payload.
+// This handler only fires for data-only messages in the background.
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Firebase is already initialized by FlutterFire before this runs
+  // Initialize local notifications in this isolate for data-only messages
+  await LocalNotificationService.init();
+  await LocalNotificationService.showFromRemoteMessage(message);
+
   if (kDebugMode) {
-    debugPrint('[FCM Background] ${message.notification?.title}');
+    debugPrint('[FCM Background] Showed: ${message.notification?.title ?? message.data["title"]}');
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'local_notification_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NotificationScheduler — handles scheduled push notifications for:
@@ -248,6 +249,9 @@ class NotificationScheduler {
   }
 
   // ── Subscribe to FCM foreground messages for scheduled types ──────────────
+  // NOTE: FcmService.setupForegroundHandler() ALSO listens to onMessage and
+  // calls LocalNotificationService.showFromRemoteMessage(). This handler only
+  // adds the break-timer stop logic on top of that.
   static void setupForegroundScheduledHandler() {
     if (kIsWeb) return;
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
@@ -255,14 +259,28 @@ class NotificationScheduler {
       final type = data['type'] as String?;
 
       if (kDebugMode) {
-        debugPrint('[NotificationScheduler] Foreground FCM: type=$type title=${message.notification?.title}');
+        debugPrint('[NotificationScheduler] Foreground FCM: '
+            'type=$type title=${message.notification?.title}');
       }
 
-      // App is in foreground — handle break_end specifically
+      // Stop the in-app break timer if the Cloud Function fired break_end
       if (type == 'break_end') {
         stopBreakTimer(employeeId: data['employee_id'] ?? '');
       }
     });
+  }
+
+  // ── Show a local notification immediately (for in-app use) ────────────────
+  static Future<void> showLocalNotification({
+    required String title,
+    required String body,
+    String type = 'custom',
+  }) async {
+    await LocalNotificationService.showLocal(
+      title: title,
+      body: body,
+      type: type,
+    );
   }
 
   // ── Dispose ────────────────────────────────────────────────────────────────

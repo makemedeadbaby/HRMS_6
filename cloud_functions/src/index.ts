@@ -487,3 +487,4 @@ async function _clearStaleToken(token: string): Promise<void> {
     functions.logger.warn(`[StaleToken] Failed to clear token: ${e}`);
   }
 }
+// updated: Mon Jun  8 23:26:55 UTC 2026

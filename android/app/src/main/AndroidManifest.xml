@@ -60,10 +60,11 @@
             </intent-filter>
         </service>
 
-        <!-- FCM: default notification channel for Android 8.0+ -->
+        <!-- FCM: default notification channel for Android 8.0+
+             Must match one of the channels created in MainActivity.kt -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="abhishek_attendance_channel" />
+            android:value="hrms_admin_channel" />
 
         <!-- FCM: custom notification icon (uses app icon) -->
         <meta-data
@@ -89,4 +90,6 @@
         </intent>
     </queries>
 </manifest>
+
+
 

@@ -8,6 +8,7 @@ import 'firebase_options.dart';
 import 'providers/app_provider.dart';
 import 'services/fcm_service.dart';
 import 'services/notification_scheduler.dart';
+import 'services/local_notification_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/employee/auth/splash_screen.dart';
 
@@ -21,6 +22,13 @@ void main() async {
   // ── 1. Initialize Hive (offline cache) ────────────────────────────────────
   await Hive.initFlutter();
   debugPrint('[App] Hive initialized');
+
+  // ── 1b. Initialize local notifications (channels + Android 13 permission) ─
+  // Must run BEFORE Firebase so background isolate can also call init()
+  if (!kIsWeb) {
+    await LocalNotificationService.init();
+    debugPrint('[App] LocalNotifications initialized');
+  }
 
   // ── 2. Initialize Firebase ────────────────────────────────────────────────
   //
@@ -40,7 +48,14 @@ void main() async {
       firebaseInitialized = true;
       // Register FCM background handler immediately after Firebase init
       FcmService.setupBackgroundHandler();
-      // Setup foreground handler for scheduled notifications
+
+      // Setup FOREGROUND handler — shows heads-up banner when app is open
+      FcmService.setupForegroundHandler();
+
+      // Handle notification tap that opened the app from killed state
+      FcmService.setupNotificationOpenHandler();
+
+      // Setup scheduler foreground handler (break-timer stop logic)
       NotificationScheduler.setupForegroundScheduledHandler();
       debugPrint('[Firebase] ✅ Initialized — project: abhishek-international-hrms'
           ' | platform: ${kIsWeb ? "web" : "android"}');
