@@ -276,7 +276,7 @@ class NotificationScheduler {
     required String body,
     String type = 'custom',
   }) async {
-    await LocalNotificationService.showLocal(
+    await LocalNotificationService.show(
       title: title,
       body: body,
       type: type,

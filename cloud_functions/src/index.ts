@@ -1,3 +1,4 @@
+// v2 — data{} includes title+body, notificationCount added
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * Abhishek International HRMS — Firebase Cloud Functions
@@ -121,6 +122,8 @@ export const processScheduledNotifications = functions
         },
         data: {
           type,
+          title,           // duplicated so Flutter foreground handler can read it
+          body,            // duplicated so Flutter foreground handler can read it
           employee_id: employeeId,
           click_action: "FLUTTER_NOTIFICATION_CLICK",
           notification_id: doc.id,
@@ -191,16 +194,20 @@ export const processFcmSendQueue = functions
         tokens: chunk,
         notification: { title, body },
         android: {
-          priority: priority === "high" ? "high" : "normal",
+          priority: "high",  // always high — we never want silent admin notifications
           notification: {
             channelId: "hrms_admin_channel",
             priority: "high",
             defaultSound: true,
+            defaultVibrateTimings: true,
             visibility: "public",
+            notificationCount: 1,
           },
         },
         data: {
           type: "admin_notification",
+          title,           // duplicated so Flutter foreground handler can read it
+          body,            // duplicated so Flutter foreground handler can read it
           target_type: targetType,
           click_action: "FLUTTER_NOTIFICATION_CLICK",
         },
@@ -487,4 +494,4 @@ async function _clearStaleToken(token: string): Promise<void> {
     functions.logger.warn(`[StaleToken] Failed to clear token: ${e}`);
   }
 }
-// updated: Mon Jun  8 23:26:55 UTC 2026
+

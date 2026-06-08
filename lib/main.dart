@@ -23,8 +23,14 @@ void main() async {
   await Hive.initFlutter();
   debugPrint('[App] Hive initialized');
 
-  // ── 1b. Initialize local notifications (channels + Android 13 permission) ─
-  // Must run BEFORE Firebase so background isolate can also call init()
+  // ── 1b. Register FCM background handler BEFORE Firebase.initializeApp ─────
+  // This MUST come before initializeApp() per firebase_messaging docs.
+  if (!kIsWeb) {
+    FcmService.setupBackgroundHandler();
+    debugPrint('[App] FCM background handler registered');
+  }
+
+  // ── 1c. Initialize local notifications (channels + Android 13 permission) ─
   if (!kIsWeb) {
     await LocalNotificationService.init();
     debugPrint('[App] LocalNotifications initialized');
@@ -46,8 +52,7 @@ void main() async {
         options: DefaultFirebaseOptions.currentPlatform,
       );
       firebaseInitialized = true;
-      // Register FCM background handler immediately after Firebase init
-      FcmService.setupBackgroundHandler();
+      // Note: setupBackgroundHandler() already called before initializeApp()
 
       // Setup FOREGROUND handler — shows heads-up banner when app is open
       FcmService.setupForegroundHandler();

@@ -5,140 +5,116 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // LocalNotificationService
 //
-// Single owner of FlutterLocalNotificationsPlugin.
-// Used to display heads-up banners in THREE scenarios:
+// ARCHITECTURE — how notifications reach the user in each app state:
 //
-//   1. App FOREGROUND  → FCM arrives via onMessage stream
-//                        → call showFromRemoteMessage()
+//  ┌───────────────┬────────────────────────────────────────────────────────┐
+//  │ App FOREGROUND│ FCM onMessage → setupForegroundHandler()               │
+//  │               │   → LocalNotificationService.show()                    │
+//  │               │   (OS silently drops FCM when app is open by default)  │
+//  ├───────────────┼────────────────────────────────────────────────────────┤
+//  │ App BACKGROUND│ OS receives FCM → shows notification automatically     │
+//  │ (minimised)   │ because Cloud Function sends notification{} block      │
+//  │               │ No Flutter code needed for this state                  │
+//  ├───────────────┼────────────────────────────────────────────────────────┤
+//  │ App KILLED    │ OS receives FCM → shows notification automatically     │
+//  │ (swiped away) │ Same reason — notification{} block in FCM payload      │
+//  │               │ Background isolate handler runs AFTER OS shows it      │
+//  └───────────────┴────────────────────────────────────────────────────────┘
 //
-//   2. App BACKGROUND  → FCM data-only message arrives via background isolate
-//                        → call showFromRemoteMessage() from background handler
+// KEY INSIGHT: For background + killed states, the OS handles display
+// automatically as long as the FCM message contains a notification{} block
+// AND the channel ID matches a registered channel.
 //
-//   3. App KILLED      → FCM notification message handled by OS directly
-//                        (no Flutter code runs — OS shows it automatically
-//                         using the channel registered in MainActivity.kt)
-//
-// Channel IDs match exactly what Cloud Functions write in the FCM payload
-// and what MainActivity.kt registers on Android 8+.
+// The background Dart isolate is a SEPARATE VM — static variables don't
+// carry over. That's why we create a fresh plugin instance each time.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Channel ID constants — shared between main and background isolate ────────
+const kBreakChannelId    = 'hrms_break_channel';
+const kReminderChannelId = 'hrms_reminder_channel';
+const kAdminChannelId    = 'hrms_admin_channel';
+
 class LocalNotificationService {
-  static final _plugin = FlutterLocalNotificationsPlugin();
+  static FlutterLocalNotificationsPlugin? _plugin;
   static bool _initialized = false;
 
-  // ── Channel definitions — MUST match MainActivity.kt ─────────────────────
-  static const _breakChannel = AndroidNotificationChannel(
-    'hrms_break_channel',
-    'Break Reminders',
-    description: 'Alerts when your break time is over',
-    importance: Importance.max,        // heads-up banner
-    playSound: true,
-    enableVibration: true,
-  );
+  static FlutterLocalNotificationsPlugin get _instance {
+    _plugin ??= FlutterLocalNotificationsPlugin();
+    return _plugin!;
+  }
 
-  static const _reminderChannel = AndroidNotificationChannel(
-    'hrms_reminder_channel',
-    'Shift Reminders',
-    description: 'Shift start and check-out reminders',
-    importance: Importance.high,
-    playSound: true,
-    enableVibration: true,
-  );
-
-  static const _adminChannel = AndroidNotificationChannel(
-    'hrms_admin_channel',
-    'Admin Notifications',
-    description: 'Company-wide announcements and admin alerts',
-    importance: Importance.max,        // heads-up banner
-    playSound: true,
-    enableVibration: true,
-  );
-
-  // ── Initialize (call once from main()) ───────────────────────────────────
+  // ── Initialize — safe to call multiple times ─────────────────────────────
   static Future<void> init() async {
-    if (kIsWeb || _initialized) return;
+    if (kIsWeb) return;
+    if (_initialized) return;
 
-    // Android init settings
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const initSettings   = InitializationSettings(android: androidSettings);
 
-    const initSettings = InitializationSettings(
-      android: androidSettings,
-    );
-
-    await _plugin.initialize(
+    await _instance.initialize(
       initSettings,
-      onDidReceiveNotificationResponse: _onNotificationTapped,
-      onDidReceiveBackgroundNotificationResponse: _onNotificationTappedBackground,
+      onDidReceiveNotificationResponse: _onTap,
+      onDidReceiveBackgroundNotificationResponse: _onTapBackground,
     );
 
-    // Register all three channels with Android OS
-    final androidImpl = _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+    // Create channels via the Android-specific implementation
+    final android = _instance.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
 
-    if (androidImpl != null) {
-      await androidImpl.createNotificationChannel(_breakChannel);
-      await androidImpl.createNotificationChannel(_reminderChannel);
-      await androidImpl.createNotificationChannel(_adminChannel);
+    if (android != null) {
+      await android.createNotificationChannel(const AndroidNotificationChannel(
+        kBreakChannelId,
+        'Break Reminders',
+        description: 'Alerts when your break time is over',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      ));
+      await android.createNotificationChannel(const AndroidNotificationChannel(
+        kReminderChannelId,
+        'Shift Reminders',
+        description: 'Shift start and check-out reminders',
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+      ));
+      await android.createNotificationChannel(const AndroidNotificationChannel(
+        kAdminChannelId,
+        'Admin Notifications',
+        description: 'Company-wide announcements and admin alerts',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      ));
 
-      // Request POST_NOTIFICATIONS permission on Android 13+
-      await androidImpl.requestNotificationsPermission();
+      // Ask for POST_NOTIFICATIONS permission (Android 13+)
+      final granted = await android.requestNotificationsPermission();
+      if (kDebugMode) debugPrint('[LocalNotif] Permission granted: $granted');
     }
 
     _initialized = true;
-    if (kDebugMode) debugPrint('[LocalNotif] ✅ Initialized with 3 channels');
+    if (kDebugMode) debugPrint('[LocalNotif] ✅ Initialized');
   }
 
   // ── Show notification from an FCM RemoteMessage ──────────────────────────
-  // Called in FOREGROUND (onMessage) and BACKGROUND (onBackgroundMessage)
   static Future<void> showFromRemoteMessage(RemoteMessage message) async {
     if (kIsWeb) return;
     if (!_initialized) await init();
 
-    final notification = message.notification;
-    final data = message.data;
+    final title  = message.notification?.title
+        ?? message.data['title'] as String?
+        ?? 'Abhishek HRMS';
+    final body   = message.notification?.body
+        ?? message.data['body'] as String?
+        ?? '';
+    final type   = (message.data['type'] as String?) ?? 'custom';
 
-    // Determine title + body — prefer explicit fields, fall back to data
-    final title = notification?.title ?? data['title'] ?? 'Abhishek HRMS';
-    final body  = notification?.body  ?? data['body']  ?? '';
-
-    if (title.isEmpty && body.isEmpty) return;
-
-    // Pick channel based on 'type' field in the FCM data payload
-    final type = data['type'] ?? 'custom';
-    final channelId = _channelIdForType(type);
-    final importance = (channelId == 'hrms_admin_channel' || channelId == 'hrms_break_channel')
-        ? Importance.max
-        : Importance.high;
-
-    final androidDetails = AndroidNotificationDetails(
-      channelId,
-      _channelNameForId(channelId),
-      channelDescription: _channelDescForId(channelId),
-      importance: importance,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: true,
-      // Show as heads-up banner even when app is in foreground
-      fullScreenIntent: channelId == 'hrms_break_channel',
-      styleInformation: BigTextStyleInformation(body),
-      icon: '@mipmap/ic_launcher',
-    );
-
-    final details = NotificationDetails(android: androidDetails);
-
-    // Use a deterministic ID based on notification_id or hash of title
-    final notifId = (data['notification_id'] ?? title).hashCode.abs() % 100000;
-
-    await _plugin.show(notifId, title, body, details, payload: type);
-
-    if (kDebugMode) {
-      debugPrint('[LocalNotif] Shown: "$title" on channel $channelId (id=$notifId)');
-    }
+    await show(title: title, body: body, type: type,
+        id: (message.data['notification_id'] ?? title).hashCode.abs() % 100000);
   }
 
-  // ── Show a direct local notification (for in-app timers) ─────────────────
-  static Future<void> showLocal({
+  // ── Core show method ─────────────────────────────────────────────────────
+  static Future<void> show({
     required String title,
     required String body,
     String type = 'custom',
@@ -147,78 +123,74 @@ class LocalNotificationService {
     if (kIsWeb) return;
     if (!_initialized) await init();
 
-    final channelId = _channelIdForType(type);
-    final androidDetails = AndroidNotificationDetails(
-      channelId,
-      _channelNameForId(channelId),
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: true,
-      styleInformation: BigTextStyleInformation(body),
-      icon: '@mipmap/ic_launcher',
+    final channelId = _channelFor(type);
+
+    final details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        channelId,
+        _channelName(channelId),
+        channelDescription: _channelDesc(channelId),
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        styleInformation: BigTextStyleInformation(body),
+        // Forces heads-up banner even when app is in foreground
+        fullScreenIntent: channelId == kBreakChannelId,
+        icon: '@mipmap/ic_launcher',
+        // Ticker text shown in status bar
+        ticker: title,
+      ),
     );
 
     final notifId = id ?? title.hashCode.abs() % 100000;
-    await _plugin.show(
-      notifId, title, body,
-      NotificationDetails(android: androidDetails),
-      payload: type,
-    );
+    await _instance.show(notifId, title, body, details, payload: type);
 
-    if (kDebugMode) debugPrint('[LocalNotif] Local shown: "$title"');
+    if (kDebugMode) debugPrint('[LocalNotif] ✅ Shown "$title" → $channelId');
   }
 
-  // ── Cancel a notification by id ──────────────────────────────────────────
+  // ── Cancel ────────────────────────────────────────────────────────────────
   static Future<void> cancel(int id) async {
-    if (!_initialized) return;
-    await _plugin.cancel(id);
+    if (_initialized) await _instance.cancel(id);
   }
 
-  // ── Cancel all notifications ─────────────────────────────────────────────
   static Future<void> cancelAll() async {
-    if (!_initialized) return;
-    await _plugin.cancelAll();
+    if (_initialized) await _instance.cancelAll();
   }
 
-  // ── Notification tap callbacks ────────────────────────────────────────────
-  static void _onNotificationTapped(NotificationResponse response) {
-    if (kDebugMode) {
-      debugPrint('[LocalNotif] Tapped: payload=${response.payload}');
-    }
-    // Could navigate to specific screen based on payload type
+  // ── Tap handlers ──────────────────────────────────────────────────────────
+  static void _onTap(NotificationResponse r) {
+    if (kDebugMode) debugPrint('[LocalNotif] Tapped: ${r.payload}');
   }
 
   @pragma('vm:entry-point')
-  static void _onNotificationTappedBackground(NotificationResponse response) {
-    if (kDebugMode) {
-      debugPrint('[LocalNotif] Background tapped: payload=${response.payload}');
-    }
+  static void _onTapBackground(NotificationResponse r) {
+    if (kDebugMode) debugPrint('[LocalNotif] BG tapped: ${r.payload}');
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  static String _channelIdForType(String type) {
+  // ── Channel helpers ───────────────────────────────────────────────────────
+  static String _channelFor(String type) {
     switch (type) {
-      case 'break_end':       return 'hrms_break_channel';
+      case 'break_end':                      return kBreakChannelId;
       case 'logout_reminder':
-      case 'shift_reminder':  return 'hrms_reminder_channel';
-      default:                return 'hrms_admin_channel';
+      case 'shift_reminder':                 return kReminderChannelId;
+      default:                               return kAdminChannelId;
     }
   }
 
-  static String _channelNameForId(String id) {
+  static String _channelName(String id) {
     switch (id) {
-      case 'hrms_break_channel':    return 'Break Reminders';
-      case 'hrms_reminder_channel': return 'Shift Reminders';
-      default:                      return 'Admin Notifications';
+      case kBreakChannelId:    return 'Break Reminders';
+      case kReminderChannelId: return 'Shift Reminders';
+      default:                 return 'Admin Notifications';
     }
   }
 
-  static String _channelDescForId(String id) {
+  static String _channelDesc(String id) {
     switch (id) {
-      case 'hrms_break_channel':    return 'Alerts when your break time is over';
-      case 'hrms_reminder_channel': return 'Shift start and check-out reminders';
-      default:                      return 'Company-wide announcements and admin alerts';
+      case kBreakChannelId:    return 'Alerts when your break time is over';
+      case kReminderChannelId: return 'Shift start and check-out reminders';
+      default:                 return 'Company-wide announcements and admin alerts';
     }
   }
 }
