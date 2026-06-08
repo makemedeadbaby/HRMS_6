@@ -9,6 +9,7 @@ import 'attendance/admin_attendance_screen.dart';
 import 'tickets/admin_tickets_screen.dart';
 import 'notifications/admin_notifications_screen.dart';
 import 'companies/companies_screen.dart';
+import 'holidays/admin_holiday_screen.dart';
 import '../employee/auth/company_select_screen.dart';
 
 class AdminShell extends StatefulWidget {
@@ -45,6 +46,7 @@ class _AdminShellState extends State<AdminShell> {
     AdminAttendanceScreen(),
     AdminTicketsScreen(),
     AdminNotificationsScreen(),
+    AdminHolidayScreen(),
     CompaniesScreen(),
   ];
 
@@ -54,6 +56,7 @@ class _AdminShellState extends State<AdminShell> {
     _NavData(Icons.event_note_rounded, Icons.event_note_outlined, 'Attendance'),
     _NavData(Icons.confirmation_number_rounded, Icons.confirmation_number_outlined, 'Tickets'),
     _NavData(Icons.notifications_rounded, Icons.notifications_outlined, 'Notifications'),
+    _NavData(Icons.celebration_rounded, Icons.celebration_outlined, 'Holidays'),
     _NavData(Icons.business_rounded, Icons.business_outlined, 'Companies'),
   ];
 

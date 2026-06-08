@@ -24,6 +24,7 @@ class EmployeeModel {
   final bool deviceBound;
   final String boundDeviceId;
   final String fcmToken;
+  final DateTime? dateOfBirth; // for birthday feature
 
   EmployeeModel({
     required this.id,
@@ -51,7 +52,22 @@ class EmployeeModel {
     this.deviceBound = false,
     this.boundDeviceId = '',
     this.fcmToken = '',
+    this.dateOfBirth,
   });
+
+  /// Returns true if today is this employee's birthday (ignores year)
+  bool get isBirthdayToday {
+    if (dateOfBirth == null) return false;
+    final now = DateTime.now();
+    return dateOfBirth!.month == now.month && dateOfBirth!.day == now.day;
+  }
+
+  /// Returns formatted birthday string e.g. "15 Aug"
+  String get birthdayDisplay {
+    if (dateOfBirth == null) return '';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${dateOfBirth!.day} ${months[dateOfBirth!.month - 1]}';
+  }
 
   // Alias for fullName - used throughout UI
   String get name => fullName;
@@ -103,6 +119,9 @@ class EmployeeModel {
       deviceBound: map['device_bound'] ?? false,
       boundDeviceId: map['bound_device_id'] ?? '',
       fcmToken: map['fcm_token'] ?? '',
+      dateOfBirth: map['date_of_birth'] != null
+          ? DateTime.tryParse(map['date_of_birth'])
+          : null,
     );
   }
 
@@ -134,6 +153,8 @@ class EmployeeModel {
       'device_bound': deviceBound,
       'bound_device_id': boundDeviceId,
       'fcm_token': fcmToken,
+      if (dateOfBirth != null)
+        'date_of_birth': dateOfBirth!.toIso8601String(),
     };
   }
 
@@ -151,6 +172,8 @@ class EmployeeModel {
     String? branch,
     String? reportingManager,
     String? fcmToken,
+    DateTime? dateOfBirth,
+    bool clearDob = false,
   }) {
     return EmployeeModel(
       id: id,
@@ -178,6 +201,7 @@ class EmployeeModel {
       deviceBound: deviceBound,
       boundDeviceId: boundDeviceId,
       fcmToken: fcmToken ?? this.fcmToken,
+      dateOfBirth: clearDob ? null : (dateOfBirth ?? this.dateOfBirth),
     );
   }
 }

@@ -7,6 +7,7 @@ import 'dashboard/employee_dashboard.dart';
 import 'attendance/attendance_screen.dart';
 import 'tickets/tickets_screen.dart';
 import 'notifications/notifications_screen.dart';
+import 'calendar/employee_calendar_screen.dart';
 import 'profile/profile_screen.dart';
 
 class EmployeeShell extends StatefulWidget {
@@ -22,6 +23,7 @@ class _EmployeeShellState extends State<EmployeeShell> {
   final _screens = const [
     EmployeeDashboard(),
     AttendanceScreen(),
+    EmployeeCalendarScreen(),
     TicketsScreen(),
     NotificationsScreen(),
     ProfileScreen(),
@@ -78,29 +80,37 @@ class _EmployeeShellState extends State<EmployeeShell> {
                   onTap: () => setState(() => _current = 1),
                 ),
                 _NavItem(
-                  icon: Icons.confirmation_number_outlined,
-                  activeIcon: Icons.confirmation_number_rounded,
-                  label: 'Tickets',
+                  icon: Icons.celebration_outlined,
+                  activeIcon: Icons.celebration_rounded,
+                  label: 'Holidays',
                   isActive: _current == 2,
                   activeColor: accent,
                   onTap: () => setState(() => _current = 2),
                 ),
                 _NavItem(
+                  icon: Icons.confirmation_number_outlined,
+                  activeIcon: Icons.confirmation_number_rounded,
+                  label: 'Tickets',
+                  isActive: _current == 3,
+                  activeColor: accent,
+                  onTap: () => setState(() => _current = 3),
+                ),
+                _NavItem(
                   icon: Icons.notifications_outlined,
                   activeIcon: Icons.notifications_rounded,
                   label: 'Alerts',
-                  isActive: _current == 3,
+                  isActive: _current == 4,
                   activeColor: accent,
                   badge: unread > 0 ? unread : null,
-                  onTap: () => setState(() => _current = 3),
+                  onTap: () => setState(() => _current = 4),
                 ),
                 _NavItem(
                   icon: Icons.person_outlined,
                   activeIcon: Icons.person_rounded,
                   label: 'Profile',
-                  isActive: _current == 4,
+                  isActive: _current == 5,
                   activeColor: accent,
-                  onTap: () => setState(() => _current = 4),
+                  onTap: () => setState(() => _current = 5),
                 ),
               ],
             ),

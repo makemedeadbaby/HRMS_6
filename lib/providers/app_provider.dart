@@ -14,6 +14,8 @@ import '../theme/app_theme.dart';
 import '../services/sync_service.dart';
 import '../services/fcm_service.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_scheduler.dart';
+// ignore: unused_import
 import '../main.dart' show firebaseInitialized;
 
 const _uuid = Uuid();
@@ -620,6 +622,22 @@ class AppProvider extends ChangeNotifier {
     _attendanceLogs.add(att);
     await _persistAttendanceRecord(att);
     notifyListeners();
+
+    // Schedule logout reminder (1 hour before shift end) via FCM
+    if (!kIsWeb && _currentEmployee != null && _currentEmployee!.fcmToken.isNotEmpty) {
+      NotificationScheduler.scheduleLogoutReminder(
+        employeeId: _currentEmployee!.id,
+        fcmToken: _currentEmployee!.fcmToken,
+        shiftEndTime: _currentEmployee!.shiftEndTime,
+      );
+      // Also schedule a shift start reminder for tomorrow
+      NotificationScheduler.scheduleShiftReminder(
+        employeeId: _currentEmployee!.id,
+        fcmToken: _currentEmployee!.fcmToken,
+        shiftStartTime: _currentEmployee!.shiftStartTime,
+        shiftType: _currentEmployee!.shiftType,
+      );
+    }
   }
 
   Future<void> startBreak() async {
@@ -628,6 +646,15 @@ class AppProvider extends ChangeNotifier {
     _todayAttendance!.breaks.add(BreakLog(id: _uuid.v4(), startTime: DateTime.now()));
     await _persistAttendanceRecord(_todayAttendance!);
     notifyListeners();
+
+    // Start break timer + schedule FCM push when break ends
+    if (_currentEmployee != null && !kIsWeb) {
+      NotificationScheduler.startBreakTimer(
+        employeeId: _currentEmployee!.id,
+        fcmToken: _currentEmployee!.fcmToken,
+        maxBreakMinutes: 30,
+      );
+    }
   }
 
   Future<void> endBreak() async {
@@ -641,7 +668,20 @@ class AppProvider extends ChangeNotifier {
     _todayAttendance!.status = 'Present';
     await _persistAttendanceRecord(_todayAttendance!);
     notifyListeners();
+
+    // Stop break timer + cancel scheduled push
+    if (_currentEmployee != null) {
+      NotificationScheduler.stopBreakTimer(
+        employeeId: _currentEmployee!.id,
+      );
+    }
   }
+
+  // ── Break timer stream (for live UI display) ───────────────────────────────
+  Stream<Duration> get breakElapsedStream =>
+      NotificationScheduler.breakElapsedStream;
+
+  Duration get currentBreakElapsed => NotificationScheduler.currentBreakElapsed;
 
   Future<void> checkOut() async {
     if (_todayAttendance == null) return;
@@ -1082,6 +1122,12 @@ class AppProvider extends ChangeNotifier {
   Color get currentAccentColor {
     if (_currentEmployee == null) return AppColors.accentDefault;
     return getCompanyAccent(_currentEmployee!.companyId);
+  }
+
+  // ── Today's birthdays across ALL companies ─────────────────────────────────
+  /// Returns all employees (across all 4 companies) whose birthday is today.
+  List<EmployeeModel> get todaysBirthdays {
+    return _employees.where((e) => e.isBirthdayToday).toList();
   }
 
   // ─────────────────────────────────────────────────────────────────────────

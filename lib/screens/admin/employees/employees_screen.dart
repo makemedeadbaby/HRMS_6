@@ -711,6 +711,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     String shiftName  = 'Day Shift';
     TimeOfDay shiftStart = const TimeOfDay(hour: 9,  minute: 30);
     TimeOfDay shiftEnd   = const TimeOfDay(hour: 18, minute: 30);
+    // DOB state
+    DateTime? selectedDob;
 
     final provider = context.read<AppProvider>();
 
@@ -1045,6 +1047,75 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                               fontWeight: FontWeight.w500)),
                     ]),
                   ),
+                  const SizedBox(height: 12),
+
+                  // ── Date of Birth ────────────────────────────────────────
+                  Text('Date of Birth (for birthday feature)',
+                      style: GoogleFonts.inter(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: selectedDob ?? DateTime(now.year - 25, 1, 1),
+                        firstDate: DateTime(1950),
+                        lastDate: DateTime(now.year - 16),
+                        builder: (c, child) => Theme(
+                          data: ThemeData.dark().copyWith(
+                            colorScheme: const ColorScheme.dark(
+                              primary: AppColors.accentDefault,
+                              surface: AppColors.surface,
+                            ),
+                          ),
+                          child: child!,
+                        ),
+                      );
+                      if (picked != null) setModal(() => selectedDob = picked);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.inputBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selectedDob != null
+                              ? const Color(0xFFEC4899)
+                              : AppColors.divider,
+                        ),
+                      ),
+                      child: Row(children: [
+                        Icon(Icons.cake_rounded,
+                            size: 16,
+                            color: selectedDob != null
+                                ? const Color(0xFFEC4899)
+                                : AppColors.textTertiary),
+                        const SizedBox(width: 10),
+                        Text(
+                          selectedDob != null
+                              ? '${selectedDob!.day} / ${selectedDob!.month} / ${selectedDob!.year}'
+                              : 'Tap to select date of birth (optional)',
+                          style: GoogleFonts.inter(
+                            color: selectedDob != null
+                                ? AppColors.textPrimary
+                                : AppColors.textTertiary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (selectedDob != null) ...[
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () => setModal(() => selectedDob = null),
+                            child: const Icon(Icons.clear_rounded,
+                                size: 16, color: AppColors.textTertiary),
+                          ),
+                        ],
+                      ]),
+                    ),
+                  ),
                   const SizedBox(height: 20),
 
                   // ── Create button ───────────────────────────────────────
@@ -1086,6 +1157,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         status: 'Active',
                         joiningDate: DateTime.now(),
                         accountCreatedAt: DateTime.now(),
+                        dateOfBirth: selectedDob,
                       ));
                       if (context.mounted) {
                         Navigator.pop(context);

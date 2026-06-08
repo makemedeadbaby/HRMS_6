@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'providers/app_provider.dart';
 import 'services/fcm_service.dart';
+import 'services/notification_scheduler.dart';
 import 'theme/app_theme.dart';
 import 'screens/employee/auth/splash_screen.dart';
 
@@ -39,6 +40,8 @@ void main() async {
       firebaseInitialized = true;
       // Register FCM background handler immediately after Firebase init
       FcmService.setupBackgroundHandler();
+      // Setup foreground handler for scheduled notifications
+      NotificationScheduler.setupForegroundScheduledHandler();
       debugPrint('[Firebase] ✅ Initialized — project: abhishek-international-hrms'
           ' | platform: ${kIsWeb ? "web" : "android"}');
     } on FirebaseException catch (e) {

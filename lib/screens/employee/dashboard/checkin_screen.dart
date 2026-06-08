@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../../../theme/app_theme.dart';
 import '../../../providers/app_provider.dart';
+import '../../../services/quote_service.dart';
 import '../../../widgets/common/app_widgets.dart';
 
 class CheckInScreen extends StatefulWidget {
@@ -26,6 +27,10 @@ class _CheckInScreenState extends State<CheckInScreen>
   bool _loading = false;
   bool _uploading = false;
 
+  // Quote of the Day
+  DailyQuote? _quote;
+  bool _quoteLoading = true;
+
   late AnimationController _pulseCtrl;
   late Animation<double> _pulse;
 
@@ -41,6 +46,19 @@ class _CheckInScreenState extends State<CheckInScreen>
     _pulse = Tween<double>(begin: 0.95, end: 1.05).animate(
       CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
     );
+    // Load today's quote after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadQuote());
+  }
+
+  Future<void> _loadQuote() async {
+    final provider = context.read<AppProvider>();
+    final empId = provider.currentEmployee?.id ?? 'anon';
+    try {
+      final q = await QuoteService.getTodaysQuote(empId);
+      if (mounted) setState(() { _quote = q; _quoteLoading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _quoteLoading = false);
+    }
   }
 
   @override
@@ -279,7 +297,11 @@ class _CheckInScreenState extends State<CheckInScreen>
                   ],
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
+
+              // ── Quote of the Day ─────────────────────────────────────────
+              _QuoteCard(quote: _quote, isLoading: _quoteLoading, accent: accent),
+              const SizedBox(height: 20),
 
               // ── Selfie Step ─────────────────────────────────────────────
               Text(
@@ -413,6 +435,107 @@ class _CheckInScreenState extends State<CheckInScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Quote of the Day card ─────────────────────────────────────────────────────
+class _QuoteCard extends StatelessWidget {
+  final DailyQuote? quote;
+  final bool isLoading;
+  final Color accent;
+
+  const _QuoteCard({
+    required this.quote,
+    required this.isLoading,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            accent.withValues(alpha: 0.12),
+            accent.withValues(alpha: 0.04),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Label
+          Row(children: [
+            Icon(Icons.format_quote_rounded, size: 14, color: accent),
+            const SizedBox(width: 6),
+            Text(
+              'QUOTE OF THE DAY',
+              style: GoogleFonts.inter(
+                color: accent,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          if (isLoading)
+            Row(children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 1.5, color: accent),
+              ),
+              const SizedBox(width: 8),
+              Text('Fetching your quote...',
+                  style: GoogleFonts.inter(
+                      color: AppColors.textTertiary, fontSize: 12)),
+            ])
+          else if (quote != null && quote!.text.isNotEmpty) ...[
+            // Quote text in cursive style
+            Text(
+              '"${quote!.text}"',
+              style: GoogleFonts.dancingScript(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Author
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                '— ${quote!.author}',
+                style: GoogleFonts.inter(
+                  color: accent,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          ] else
+            Text(
+              '"Do something today that your future self will thank you for."',
+              style: GoogleFonts.dancingScript(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                height: 1.5,
+              ),
+            ),
+        ],
       ),
     );
   }

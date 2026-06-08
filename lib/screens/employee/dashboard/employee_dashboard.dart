@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../theme/app_theme.dart';
 import '../../../providers/app_provider.dart';
+import '../../../models/employee_model.dart';
 import '../../../widgets/common/app_widgets.dart';
 import 'checkin_screen.dart';
 
@@ -16,6 +17,7 @@ class EmployeeDashboard extends StatefulWidget {
 
 class _EmployeeDashboardState extends State<EmployeeDashboard> {
   late Stream<DateTime> _timeStream;
+  bool _birthdayBannerDismissed = false;
 
   @override
   void initState() {
@@ -260,7 +262,16 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
           // ── Company Header ──────────────────────────────────────────────
           CompanyHeaderBar(companyName: emp.companyName, accentColor: accent),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+
+          // ── Birthday Banner ─────────────────────────────────────────────
+          if (!_birthdayBannerDismissed)
+            _BirthdayBanner(
+              birthdays: provider.todaysBirthdays,
+              onDismiss: () => setState(() => _birthdayBannerDismissed = true),
+            ),
+
+          const SizedBox(height: 8),
 
           // ── Employee Row ────────────────────────────────────────────────
           Row(
@@ -399,6 +410,65 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
                   ),
                 ] else ...[
                   // Checked in, active — show Break + Check Out buttons
+                  // Live break timer if on break
+                  if (provider.isOnBreak)
+                    StreamBuilder<Duration>(
+                      stream: provider.breakElapsedStream,
+                      builder: (ctx, snap) {
+                        final elapsed = snap.data ?? provider.currentBreakElapsed;
+                        final mins = elapsed.inMinutes;
+                        final secs = elapsed.inSeconds % 60;
+                        final isOver30 = mins >= 30;
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          margin: const EdgeInsets.only(bottom: 10),
+                          decoration: BoxDecoration(
+                            color: isOver30
+                                ? AppColors.statusAbsent.withValues(alpha: 0.1)
+                                : AppColors.statusOnBreak.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isOver30
+                                  ? AppColors.statusAbsent.withValues(alpha: 0.4)
+                                  : AppColors.statusOnBreak.withValues(alpha: 0.4),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.timer_rounded,
+                                size: 14,
+                                color: isOver30
+                                    ? AppColors.statusAbsent
+                                    : AppColors.statusOnBreak,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Break: ${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}',
+                                style: GoogleFonts.inter(
+                                  color: isOver30
+                                      ? AppColors.statusAbsent
+                                      : AppColors.statusOnBreak,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (isOver30) ...[
+                                const SizedBox(width: 6),
+                                Text('⚠️ Over limit',
+                                    style: GoogleFonts.inter(
+                                      color: AppColors.statusAbsent,
+                                      fontSize: 11,
+                                    )),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   Row(
                     children: [
                       Expanded(
@@ -544,6 +614,110 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
             ),
           ),
           const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Birthday Banner ───────────────────────────────────────────────────────────
+class _BirthdayBanner extends StatelessWidget {
+  final List<EmployeeModel> birthdays;
+  final VoidCallback onDismiss;
+
+  const _BirthdayBanner({
+    required this.birthdays,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (birthdays.isEmpty) return const SizedBox.shrink();
+
+    // Build display names list
+    final names = birthdays.take(3).map((e) => e.fullName.split(' ').first).toList();
+    final extraCount = birthdays.length - names.length;
+    String displayNames = names.join(', ');
+    if (extraCount > 0) displayNames += ' +$extraCount more';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFEC4899), Color(0xFFBE185D)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFEC4899).withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Cake emoji icon
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Center(
+              child: Text('🎂', style: TextStyle(fontSize: 18)),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  birthdays.length == 1
+                      ? '🎉 Happy Birthday!'
+                      : '🎉 Birthdays Today!',
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  displayNames,
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontSize: 12,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  birthdays.length == 1
+                      ? '${birthdays.first.companyName} — '
+                          'wish them today!'
+                      : '${birthdays.length} colleagues across Abhishek International',
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: onDismiss,
+            child: Icon(
+              Icons.close_rounded,
+              color: Colors.white.withValues(alpha: 0.7),
+              size: 18,
+            ),
+          ),
         ],
       ),
     );
