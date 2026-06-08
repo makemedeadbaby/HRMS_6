@@ -6,6 +6,7 @@ import '../../../theme/app_theme.dart';
 import '../../../providers/app_provider.dart';
 import '../../../models/notification_model.dart';
 import '../../../widgets/common/app_widgets.dart';
+import '../../../models/company_model.dart';
 
 class AdminNotificationsScreen extends StatefulWidget {
   const AdminNotificationsScreen({super.key});
@@ -84,8 +85,11 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
 
   Widget _buildSendTab(BuildContext context, AppProvider provider) {
     final targetTypes = [
-      {'key': 'global', 'label': 'Global', 'icon': Icons.public},
-      {'key': 'individual', 'label': 'Individual', 'icon': Icons.person},
+      {'key': 'global',     'label': 'All Employees',  'icon': Icons.public},
+      {'key': 'company',    'label': 'By Company',     'icon': Icons.business},
+      {'key': 'department', 'label': 'By Department',  'icon': Icons.group_work},
+      {'key': 'shift',      'label': 'By Shift',       'icon': Icons.access_time},
+      {'key': 'individual', 'label': 'Individual',     'icon': Icons.person},
     ];
 
     final priorities = ['Normal', 'Important', 'Urgent'];
@@ -202,12 +206,12 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
           _SectionLabel('TARGET AUDIENCE'),
           const SizedBox(height: 10),
           GridView.count(
-            crossAxisCount: 2,
+            crossAxisCount: 3,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 2.2,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: 1.8,
             children: targetTypes.map((t) {
               final selected = _targetType == t['key'];
               return GestureDetector(
@@ -254,8 +258,13 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
           ),
           const SizedBox(height: 16),
 
-          if (_targetType == 'individual') ...[
-            _SectionLabel('SELECT EMPLOYEE'),
+          if (_targetType != 'global') ...[
+            _SectionLabel(
+              _targetType == 'individual' ? 'SELECT EMPLOYEE'
+              : _targetType == 'company'  ? 'SELECT COMPANY'
+              : _targetType == 'department' ? 'SELECT DEPARTMENT'
+              : 'SELECT SHIFT',
+            ),
             const SizedBox(height: 8),
             _buildTargetValueSelector(provider),
             const SizedBox(height: 16),
@@ -362,84 +371,211 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
   }
 
   Widget _buildTargetValueSelector(AppProvider provider) {
-    switch (_targetType) {
-      case 'individual':
-        return Column(
-          children: [
-            Container(
-              height: 140,
+    // ── Company picker ────────────────────────────────────────────────────
+    if (_targetType == 'company') {
+      final companyNames = provider.companies.map((c) => c.name).toList();
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: companyNames.map((name) {
+          final selected = _targetValue == name;
+          return GestureDetector(
+            onTap: () => setState(() => _targetValue = name),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: AppColors.cardBg,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.divider),
+                color: selected ? AppColors.accent.withValues(alpha: 0.15) : AppColors.cardBg,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: selected ? AppColors.accent : AppColors.divider,
+                  width: selected ? 1.5 : 1,
+                ),
               ),
-              child: ListView.builder(
-                itemCount: provider.employees.length,
-                itemBuilder: (context, i) {
-                  final emp = provider.employees[i];
-                  final selected = _targetValue == emp.id;
-                  return InkWell(
-                    onTap: () => setState(() => _targetValue = emp.id),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      color: selected ? AppColors.accent.withValues(alpha: 0.1) : Colors.transparent,
-                      child: Row(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.business,
+                    size: 14,
+                    color: selected ? AppColors.accent : AppColors.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(
+                    name,
+                    style: GoogleFonts.inter(
+                      color: selected ? AppColors.accent : AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                  if (selected) ...[const SizedBox(width: 6), Icon(Icons.check_circle, color: AppColors.accent, size: 14)],
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      );
+    }
+
+    // ── Department picker ─────────────────────────────────────────────────
+    if (_targetType == 'department') {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: CompanyModel.standardDepartments.map((dept) {
+          final selected = _targetValue == dept;
+          return GestureDetector(
+            onTap: () => setState(() => _targetValue = dept),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? const Color(0xFF818CF8).withValues(alpha: 0.15) : AppColors.cardBg,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: selected ? const Color(0xFF818CF8) : AppColors.divider,
+                  width: selected ? 1.5 : 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.group_work,
+                    size: 14,
+                    color: selected ? const Color(0xFF818CF8) : AppColors.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(
+                    dept,
+                    style: GoogleFonts.inter(
+                      color: selected ? const Color(0xFF818CF8) : AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                  if (selected) ...[const SizedBox(width: 6), Icon(Icons.check_circle, color: const Color(0xFF818CF8), size: 14)],
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      );
+    }
+
+    // ── Shift picker ──────────────────────────────────────────────────────
+    if (_targetType == 'shift') {
+      final shifts = ['Morning', 'Evening', 'Night', 'General'];
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: shifts.map((shift) {
+          final selected = _targetValue == shift;
+          return GestureDetector(
+            onTap: () => setState(() => _targetValue = shift),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? AppColors.statusPresent.withValues(alpha: 0.15) : AppColors.cardBg,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: selected ? AppColors.statusPresent : AppColors.divider,
+                  width: selected ? 1.5 : 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.access_time,
+                    size: 14,
+                    color: selected ? AppColors.statusPresent : AppColors.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(
+                    shift,
+                    style: GoogleFonts.inter(
+                      color: selected ? AppColors.statusPresent : AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                  if (selected) ...[const SizedBox(width: 6), Icon(Icons.check_circle, color: AppColors.statusPresent, size: 14)],
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      );
+    }
+
+    // ── Individual employee picker ─────────────────────────────────────────
+    if (_targetType == 'individual') {
+      return Container(
+        height: 140,
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: ListView.builder(
+          itemCount: provider.employees.length,
+          itemBuilder: (context, i) {
+            final emp = provider.employees[i];
+            final selected = _targetValue == emp.id;
+            return InkWell(
+              onTap: () => setState(() => _targetValue = emp.id),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                color: selected ? AppColors.accent.withValues(alpha: 0.1) : Colors.transparent,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: provider.getCompanyAccent(emp.companyId).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Center(
+                        child: Text(
+                          emp.name[0],
+                          style: GoogleFonts.inter(
+                            color: provider.getCompanyAccent(emp.companyId),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: provider.getCompanyAccent(emp.companyId).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Center(
-                              child: Text(
-                                emp.name[0],
-                                style: GoogleFonts.inter(
-                                  color: provider.getCompanyAccent(emp.companyId),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                          Text(
+                            emp.name,
+                            style: GoogleFonts.inter(
+                              color: selected ? AppColors.accent : AppColors.textPrimary,
+                              fontSize: 13,
+                              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  emp.name,
-                                  style: GoogleFonts.inter(
-                                    color: selected ? AppColors.accent : AppColors.textPrimary,
-                                    fontSize: 13,
-                                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                                  ),
-                                ),
-                                Text(
-                                  emp.companyName,
-                                  style: GoogleFonts.inter(
-                                    color: AppColors.textHint,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
+                          Text(
+                            '${emp.companyName} · ${emp.department}',
+                            style: GoogleFonts.inter(
+                              color: AppColors.textHint,
+                              fontSize: 11,
                             ),
                           ),
-                          if (selected)
-                            Icon(Icons.check_circle, color: AppColors.accent, size: 16),
                         ],
                       ),
                     ),
-                  );
-                },
+                    if (selected)
+                      Icon(Icons.check_circle, color: AppColors.accent, size: 16),
+                  ],
+                ),
               ),
-            ),
-          ],
-        );
-      default:
-        return const SizedBox.shrink();
+            );
+          },
+        ),
+      );
     }
+
+    return const SizedBox.shrink();
   }
 
   Widget _buildHistoryTab(AppProvider provider) {
@@ -491,13 +627,23 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
   String _getRecipientText(AppProvider provider) {
     switch (_targetType) {
       case 'global':
-        return 'All ${provider.employees.length} employees (from joining date)';
+        return 'All ${provider.employees.length} employees';
+      case 'company':
+        if (_targetValue.isEmpty) return 'Select a company';
+        final count = provider.employees.where((e) => e.companyName == _targetValue).length;
+        return '$_targetValue · $count employees';
+      case 'department':
+        if (_targetValue.isEmpty) return 'Select a department';
+        final count = provider.employees.where((e) => e.department == _targetValue).length;
+        return '$_targetValue · $count employees';
+      case 'shift':
+        if (_targetValue.isEmpty) return 'Select a shift';
+        final count = provider.employees.where((e) => e.shiftType == _targetValue).length;
+        return '$_targetValue shift · $count employees';
       case 'individual':
         if (_targetValue.isEmpty) return 'Select an employee';
-        final emp = provider.employees
-            .where((e) => e.id == _targetValue)
-            .firstOrNull;
-        return emp?.name ?? 'Unknown';
+        final emp = provider.employees.where((e) => e.id == _targetValue).firstOrNull;
+        return emp != null ? '${emp.name} · ${emp.companyName}' : 'Unknown';
       default:
         return 'Unknown';
     }
@@ -512,8 +658,10 @@ class _AdminNotificationsScreenState extends State<AdminNotificationsScreen>
       _showError(context, 'Please enter a notification message');
       return;
     }
-    if (_targetType == 'individual' && _targetValue.isEmpty) {
-      _showError(context, 'Please select an employee');
+    if (_targetType != 'global' && _targetValue.isEmpty) {
+      final labels = {'company': 'a company', 'department': 'a department',
+          'shift': 'a shift', 'individual': 'an employee'};
+      _showError(context, 'Please select ${labels[_targetType] ?? 'a target'}');
       return;
     }
 
@@ -610,22 +758,24 @@ class _NotificationHistoryCard extends StatelessWidget {
 
   IconData _targetIcon(String t) {
     switch (t) {
-      case 'global':
-      case 'all':
-        return Icons.public;
-      case 'individual':
-      case 'employee':
-        return Icons.person;
-      default:
-        return Icons.send;
+      case 'global': case 'all': return Icons.public;
+      case 'company':            return Icons.business;
+      case 'department':         return Icons.group_work;
+      case 'shift':              return Icons.access_time;
+      case 'individual': case 'employee': return Icons.person;
+      default:                   return Icons.send;
     }
   }
 
   String _targetLabel(NotificationModel n) {
-    if (n.isIndividual) {
-      return 'Individual';
+    switch (n.targetType) {
+      case 'global':     return 'All Employees';
+      case 'company':    return n.targetValue.isNotEmpty ? n.targetValue : 'By Company';
+      case 'department': return n.targetValue.isNotEmpty ? n.targetValue : 'By Department';
+      case 'shift':      return n.targetValue.isNotEmpty ? '${n.targetValue} Shift' : 'By Shift';
+      case 'individual': case 'employee': return 'Individual';
+      default:           return n.targetType;
     }
-    return 'Global';
   }
 
   @override

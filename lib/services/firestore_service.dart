@@ -467,4 +467,13 @@ class FirestoreService {
         .snapshots()
         .map((snap) => _queryToList(snap));
   }
+
+  /// Get admin settings document from Firestore.
+  static Future<Map<String, dynamic>?> getAdminSettings() async {
+    try {
+      final doc = await _db.collection('admin_settings').doc('main').get();
+      if (doc.exists) return doc.data();
+    } catch (_) {}
+    return null;
+  }
 }

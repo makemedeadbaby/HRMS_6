@@ -13,6 +13,8 @@ import '../models/notification_model.dart';
 import '../theme/app_theme.dart';
 import '../services/sync_service.dart';
 import '../services/fcm_service.dart';
+import '../services/firestore_service.dart';
+import '../main.dart' show firebaseInitialized;
 
 const _uuid = Uuid();
 
@@ -40,7 +42,7 @@ class AppProvider extends ChangeNotifier {
   EmployeeModel? _currentEmployee;
   bool _isAdmin = false;
   String _adminRole = 'super_admin';
-  String _adminPassword = 'Admin@123';
+  String _adminPassword = 'admin123';
   String _superAdminPassword = 'Super@123';
 
   EmployeeModel? get currentEmployee => _currentEmployee;
@@ -353,8 +355,20 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _loadAdminCredentials() async {
     final prefs = await SharedPreferences.getInstance();
-    _adminPassword = prefs.getString('admin_password') ?? 'Admin@123';
-    _superAdminPassword = prefs.getString('super_admin_password') ?? 'Super@123';
+    _adminPassword = prefs.getString('admin_password') ?? 'admin123';
+    _superAdminPassword = prefs.getString('super_admin_password') ?? 'admin123';
+
+    // Also try to load from Firestore admin_settings
+    try {
+      final doc = await FirestoreService.getAdminSettings();
+      if (doc != null) {
+        final fsPass = doc['adminPassword'] as String?;
+        if (fsPass != null && fsPass.isNotEmpty) {
+          _adminPassword = fsPass;
+          await prefs.setString('admin_password', fsPass);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _restoreSession() async {
@@ -447,8 +461,6 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<bool> loginAdmin(String loginId, String password) async {
-    if (!kIsWeb) return false;
-
     final isAdmin      = loginId == 'admin'      && password == _adminPassword;
     final isSuperAdmin = loginId == 'superadmin' && password == _superAdminPassword;
     if (!isAdmin && !isSuperAdmin) return false;
@@ -793,7 +805,20 @@ class AppProvider extends ChangeNotifier {
     final List<String> recipientIds;
     if (type == 'individual' || type == 'employee') {
       recipientIds = targetValue.isNotEmpty ? [targetValue] : [];
+    } else if (type == 'company') {
+      recipientIds = _employees
+          .where((e) => e.companyName == targetValue)
+          .map((e) => e.id).toList();
+    } else if (type == 'department') {
+      recipientIds = _employees
+          .where((e) => e.department == targetValue)
+          .map((e) => e.id).toList();
+    } else if (type == 'shift') {
+      recipientIds = _employees
+          .where((e) => e.shiftType == targetValue)
+          .map((e) => e.id).toList();
     } else {
+      // global — all employees
       recipientIds = _employees.map((e) => e.id).toList();
     }
 
@@ -1103,7 +1128,7 @@ class AppProvider extends ChangeNotifier {
       id: 'emp_001', employeeCode: 'EMP-1001', fullName: 'Rahul Sharma',
       email: 'rahul@learningsaint.com', mobile: '9876543210',
       companyId: 'c_001', companyName: 'Learning Saint',
-      department: 'USA Sales', designation: 'Sales Executive',
+      department: 'US Dept', designation: 'Sales Executive',
       shiftType: 'Night Shift', shiftStartTime: '8:30 PM', shiftEndTime: '5:30 AM',
       reportingManager: 'Abhishek Boss', branch: 'Noida',
       loginId: 'rahul.sharma', passwordHash: 'Pass@123',
@@ -1113,7 +1138,7 @@ class AppProvider extends ChangeNotifier {
       id: 'emp_002', employeeCode: 'EMP-1002', fullName: 'Priya Singh',
       email: 'priya@khushlifestyle.com', mobile: '9876543211',
       companyId: 'c_002', companyName: 'Khush Lifestyle',
-      department: 'Marketing', designation: 'Marketing Executive',
+      department: 'Marketing Dept', designation: 'Marketing Executive',
       shiftType: 'Day Shift', shiftStartTime: '9:30 AM', shiftEndTime: '6:30 PM',
       reportingManager: 'Abhishek Boss', branch: 'Noida',
       loginId: 'priya.singh', passwordHash: 'Pass@123',
@@ -1123,7 +1148,7 @@ class AppProvider extends ChangeNotifier {
       id: 'emp_003', employeeCode: 'EMP-1003', fullName: 'Amit Kumar',
       email: 'amit@vibgyor.com', mobile: '9876543212',
       companyId: 'c_003', companyName: 'Vibgyor',
-      department: 'Creative', designation: 'Designer',
+      department: 'IT Dept', designation: 'Designer',
       shiftType: 'Day Shift', shiftStartTime: '10:00 AM', shiftEndTime: '7:00 PM',
       reportingManager: 'Abhishek Boss', branch: 'Kanpur',
       loginId: 'amit.kumar', passwordHash: 'Pass@123',
@@ -1133,7 +1158,7 @@ class AppProvider extends ChangeNotifier {
       id: 'emp_004', employeeCode: 'EMP-1004', fullName: 'Neha Gupta',
       email: 'neha@possessivepanda.com', mobile: '9876543213',
       companyId: 'c_004', companyName: 'Possessive Panda',
-      department: 'Sales', designation: 'Sales Manager',
+      department: 'Domestic Dept', designation: 'Sales Manager',
       shiftType: 'Day Shift', shiftStartTime: '10:00 AM', shiftEndTime: '7:00 PM',
       reportingManager: 'Abhishek Boss', branch: 'Noida',
       loginId: 'neha.gupta', passwordHash: 'Pass@123',
@@ -1143,7 +1168,7 @@ class AppProvider extends ChangeNotifier {
       id: 'emp_005', employeeCode: 'EMP-1005', fullName: 'Ravi Verma',
       email: 'ravi@learningsaint.com', mobile: '9876543214',
       companyId: 'c_001', companyName: 'Learning Saint',
-      department: 'UK Sales', designation: 'Senior Sales Executive',
+      department: 'UK Dept', designation: 'Senior Sales Executive',
       shiftType: 'Night Shift', shiftStartTime: '8:30 PM', shiftEndTime: '5:30 AM',
       reportingManager: 'Abhishek Boss', branch: 'Noida',
       loginId: 'ravi.verma', passwordHash: 'Pass@123',

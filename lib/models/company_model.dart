@@ -88,6 +88,18 @@ class CompanyModel {
     );
   }
 
+  // ── 8 Standard departments shared across all group companies ───────────────
+  static const List<String> standardDepartments = [
+    'US Dept',
+    'UK Dept',
+    'Domestic Dept',
+    'Marketing Dept',
+    'IT Dept',
+    'Support Dept',
+    'Backend Dept',
+    'Others',
+  ];
+
   static List<CompanyModel> get defaultCompanies => [
     CompanyModel(
       id: 'c_001',
@@ -98,7 +110,7 @@ class CompanyModel {
       address: 'Noida, Uttar Pradesh',
       createdAt: DateTime(2023, 1, 1),
       branches: ['Noida', 'Remote'],
-      departments: ['USA Sales', 'UK Sales', 'Domestic Sales', 'HR', 'Tech', 'Marketing', 'Support', 'Accounts', 'Management'],
+      departments: standardDepartments,
     ),
     CompanyModel(
       id: 'c_002',
@@ -109,7 +121,7 @@ class CompanyModel {
       address: 'B-127, Sector 69, Noida',
       createdAt: DateTime(2023, 1, 1),
       branches: ['Noida', 'Remote'],
-      departments: ['Sales', 'Marketing', 'HR', 'Accounts', 'Design', 'Support', 'Management'],
+      departments: standardDepartments,
     ),
     CompanyModel(
       id: 'c_003',
@@ -120,7 +132,7 @@ class CompanyModel {
       address: 'Noida, Uttar Pradesh',
       createdAt: DateTime(2023, 1, 1),
       branches: ['Noida', 'Kanpur', 'Remote'],
-      departments: ['Creative', 'Sales', 'Marketing', 'HR', 'Accounts', 'Management'],
+      departments: standardDepartments,
     ),
     CompanyModel(
       id: 'c_004',
@@ -131,7 +143,7 @@ class CompanyModel {
       address: 'Noida, Uttar Pradesh',
       createdAt: DateTime(2023, 1, 1),
       branches: ['Noida', 'Remote'],
-      departments: ['Sales', 'Marketing', 'HR', 'Accounts', 'Support', 'Management'],
+      departments: standardDepartments,
     ),
   ];
 }

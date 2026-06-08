@@ -8,6 +8,7 @@ import '../../../providers/app_provider.dart';
 import '../../../models/attendance_model.dart';
 import '../../../models/employee_model.dart';
 import '../../../widgets/common/app_widgets.dart';
+import '../../../models/company_model.dart';
 
 class AdminAttendanceScreen extends StatefulWidget {
   const AdminAttendanceScreen({super.key});
@@ -21,6 +22,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen>
   late TabController _tabController;
   DateTime _selectedDate = DateTime.now();
   String _filterCompany = 'All';
+  String _filterDept   = 'All';
   String _filterShift = 'All';
   String _filterStatus = 'All';
   String _searchQuery = '';
@@ -62,6 +64,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen>
     if (_filterCompany != 'All' && emp.companyName != _filterCompany) {
       return false;
     }
+    if (_filterDept != 'All' && emp.department != _filterDept) return false;
     if (_filterShift != 'All' && emp.shiftType != _filterShift) return false;
     if (_searchQuery.isNotEmpty &&
         !emp.name.toLowerCase().contains(_searchQuery.toLowerCase()) &&
@@ -252,6 +255,13 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen>
               ),
               const SizedBox(height: 8),
               _buildFilterChips(
+                options: ['All', ...CompanyModel.standardDepartments],
+                selected: _filterDept,
+                onSelected: (v) => setState(() => _filterDept = v),
+                accentFor: (_) => const Color(0xFF818CF8),
+              ),
+              const SizedBox(height: 8),
+              _buildFilterChips(
                 options: shifts,
                 selected: _filterShift,
                 onSelected: (v) => setState(() => _filterShift = v),
@@ -404,6 +414,13 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen>
                 options: companies,
                 selected: _filterCompany,
                 onSelected: (v) => setState(() => _filterCompany = v),
+              ),
+              const SizedBox(height: 8),
+              _buildFilterChips(
+                options: ['All', ...CompanyModel.standardDepartments],
+                selected: _filterDept,
+                onSelected: (v) => setState(() => _filterDept = v),
+                accentFor: (_) => const Color(0xFF818CF8),
               ),
               const SizedBox(height: 8),
               _buildFilterChips(

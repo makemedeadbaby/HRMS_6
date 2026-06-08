@@ -22,6 +22,7 @@ class EmployeesScreen extends StatefulWidget {
 class _EmployeesScreenState extends State<EmployeesScreen> {
   String _searchQuery = '';
   String _filterCompany = 'All';
+  String _filterDept = 'All';
   String _filterShift = 'All';
 
   List<String> _shiftOptions(AppProvider provider) {
@@ -38,6 +39,9 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     return ['All', ...{...defaults, ...fromData}.toList()..sort()];
   }
 
+  List<String> get _deptOptions =>
+      ['All', ...CompanyModel.standardDepartments];
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -47,8 +51,9 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
           e.employeeCode.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           e.loginId.toLowerCase().contains(_searchQuery.toLowerCase());
       final matchCompany = _filterCompany == 'All' || e.companyName == _filterCompany;
+      final matchDept    = _filterDept == 'All' || e.department == _filterDept;
       final matchShift = _filterShift == 'All' || e.shiftType == _filterShift;
-      return matchSearch && matchCompany && matchShift;
+      return matchSearch && matchCompany && matchDept && matchShift;
     }).toList();
 
     return Scaffold(
@@ -137,6 +142,47 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  // ── Department filter ────────────────────────────────────
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _deptOptions.map((dept) {
+                        final selected = _filterDept == dept;
+                        const color = Color(0xFF818CF8); // indigo accent
+                        return GestureDetector(
+                          onTap: () => setState(() => _filterDept = dept),
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? color.withValues(alpha: 0.15)
+                                  : AppColors.surface,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: selected ? color : AppColors.divider,
+                              ),
+                            ),
+                            child: Text(
+                              dept,
+                              style: GoogleFonts.inter(
+                                color: selected
+                                    ? color
+                                    : AppColors.textSecondary,
+                                fontSize: 12,
+                                fontWeight: selected
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // ── Shift filter ──────────────────────────────────────────
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -659,7 +705,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     final designationCtrl = TextEditingController();
     final managerCtrl     = TextEditingController(); // reporting manager
     String selectedCompany = '';
-    String selectedDept    = 'USA Sales';
+    String selectedDept    = CompanyModel.standardDepartments.first; // 'US Dept'
     String selectedBranch  = 'Noida';
     // Shift state
     String shiftName  = 'Day Shift';
@@ -677,9 +723,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     initialCompany ??= provider.companies.firstOrNull;
     if (initialCompany != null) {
       selectedCompany = initialCompany.id;
-      if (initialCompany.departments.isNotEmpty) {
-        selectedDept = initialCompany.departments.first;
-      }
+      selectedDept = CompanyModel.standardDepartments.first;
       if (initialCompany.branches.isNotEmpty) {
         selectedBranch = initialCompany.branches.first;
       }
@@ -691,9 +735,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       if (company == null) return;
       setModal(() {
         selectedCompany = companyId;
-        selectedDept = company.departments.isNotEmpty
-            ? company.departments.first
-            : 'General';
+        selectedDept = CompanyModel.standardDepartments.first;
         selectedBranch =
             company.branches.isNotEmpty ? company.branches.first : 'Noida';
       });
@@ -823,12 +865,11 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                     Expanded(
                       child: _companyDropdown(
                         label: 'Department',
-                        value: selectedDept,
-                        options: provider.companies
-                                .where((c) => c.id == selectedCompany)
-                                .firstOrNull
-                                ?.departments ??
-                            ['General'],
+                        value: CompanyModel.standardDepartments
+                                .contains(selectedDept)
+                            ? selectedDept
+                            : CompanyModel.standardDepartments.first,
+                        options: CompanyModel.standardDepartments,
                         onChanged: (v) =>
                             setModal(() => selectedDept = v ?? selectedDept),
                       ),

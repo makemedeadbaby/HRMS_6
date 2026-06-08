@@ -56,7 +56,6 @@ app.*.map.json
 **/ios/Flutter/Flutter.podspec
 
 # Web
-lib/generated_plugin_registrant.dart
 
 # Firebase local cache
 .firebase/
