@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    Abhishek International Group — Attendance Register
+    Flutter Web App  |  Firebase Project: abhishek-international-hrms
+    
+    NOTE: Do NOT add Firebase JS SDK scripts here.
+    FlutterFire (firebase_core + cloud_firestore Dart packages) handles
+    Firebase initialization entirely from Dart via Firebase.initializeApp().
+    Adding Firebase compat JS here causes [core/duplicate-app] errors.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Abhishek International Group Attendance Management System">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Abhishek Attendance">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Abhishek Attendance — Admin Panel</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Branded loading screen shown while Flutter + Firebase initialize */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background-color: #0A0A0A;
+    }
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    #loading-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+    #loading-screen .logo-text {
+      color: #E53935;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    #loading-screen .sub-text {
+      color: #555;
+      font-size: 13px;
+      margin: -12px 0 0;
+    }
+    #loading-screen .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #1E1E1E;
+      border-top-color: #E53935;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="loading-screen">
+    <div class="logo-text">Abhishek International</div>
+    <div class="sub-text">Attendance Register</div>
+    <div class="spinner"></div>
+  </div>
+
+  <script>
+    // Remove loading screen on first Flutter frame
+    window.addEventListener('flutter-first-frame', function () {
+      const el = document.getElementById('loading-screen');
+      if (el) { el.style.opacity = '0'; setTimeout(function(){ el.remove(); }, 300); }
+    });
+  </script>
+
+  <!-- Flutter bootstrap — loads the compiled Dart app.
+       FlutterFire SDK is bundled inside main.dart.js automatically. -->
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
