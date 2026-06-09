@@ -152,6 +152,30 @@ class FirestoreService {
     }
   }
 
+  /// Fetch a single employee by login_id — used as fallback during login
+  /// when the in-memory list may be stale or not yet loaded.
+  static Future<Map<String, dynamic>?> fetchEmployeeByLoginId(
+      String loginId) async {
+    try {
+      // Firestore where() is case-sensitive; we store login_id as entered
+      final snap = await _employees
+          .where('login_id', isEqualTo: loginId)
+          .limit(1)
+          .get();
+      if (snap.docs.isNotEmpty) return _docToMap(snap.docs.first);
+      // Also try lowercase version in case stored differently
+      final snapLower = await _employees
+          .where('login_id', isEqualTo: loginId.toLowerCase())
+          .limit(1)
+          .get();
+      if (snapLower.docs.isNotEmpty) return _docToMap(snapLower.docs.first);
+      return null;
+    } catch (e) {
+      debugPrint('[Firestore] fetchEmployeeByLoginId error: $e');
+      return null;
+    }
+  }
+
   /// Update employee password only.
   static Future<bool> updateEmployeePassword(String id, String hash) async {
     try {

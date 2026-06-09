@@ -196,7 +196,16 @@ class AppProvider extends ChangeNotifier {
       _employees = cached.map((m) => EmployeeModel.fromMap(m)).toList();
       if (_employees.isNotEmpty) return;
     }
-    // 3️⃣ First run: seed demo employees → push to API
+    // 3️⃣ First run only — seed demo employees, but ONLY if Firestore is also
+    //    empty (prevents overwriting real employees when network is down).
+    //    Guard: fetch a fresh count before seeding.
+    final checkAgain = await SyncService.fetchEmployees();
+    if (checkAgain != null && checkAgain.isNotEmpty) {
+      _employees = checkAgain.map((m) => EmployeeModel.fromMap(m)).toList();
+      await _cacheToHive('employees_box', 'employees_list', _employees.map((e) => e.toMap()).toList());
+      return;
+    }
+    debugPrint('[AppProvider] First run — seeding demo employees');
     _employees = _demoEmployees();
     for (final e in _employees) {
       await SyncService.upsertEmployee(e.toMap());
@@ -450,6 +459,34 @@ class AppProvider extends ChangeNotifier {
       e.status == 'Active' &&
       (companyId == null || e.companyId == companyId)
     ).firstOrNull;
+
+    // ── Firestore direct-query fallback ─────────────────────────────────────
+    // If in-memory list didn't find the employee (stale cache or first-launch),
+    // query Firestore directly by login_id.  This handles the common case where
+    // an admin creates a new employee and the mobile app hasn't refreshed yet.
+    if (emp == null) {
+      debugPrint('[Login] In-memory lookup failed for "$id", querying Firestore directly...');
+      final raw = await FirestoreService.fetchEmployeeByLoginId(loginId.trim());
+      if (raw != null) {
+        final directEmp = EmployeeModel.fromMap(raw);
+        debugPrint('[Login] Direct Firestore found: ${directEmp.loginId} pwd=${directEmp.passwordHash}');
+        if (directEmp.passwordHash.trim() == pass &&
+            directEmp.status == 'Active' &&
+            (companyId == null || directEmp.companyId == companyId)) {
+          emp = directEmp;
+          // Merge into in-memory list so future lookups work
+          final idx = _employees.indexWhere((e) => e.id == directEmp.id);
+          if (idx >= 0) {
+            _employees[idx] = directEmp;
+          } else {
+            _employees.add(directEmp);
+          }
+          await _cacheToHive('employees_box', 'employees_list',
+              _employees.map((e) => e.toMap()).toList());
+        }
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     if (emp == null) return false;
 
@@ -1191,9 +1228,10 @@ class AppProvider extends ChangeNotifier {
 
     final byId = pool.where((e) => e.loginId.trim().toLowerCase() == id).toList();
     if (byId.isEmpty) {
-      final known = pool.map((e) => e.loginId).where((id) => id.isNotEmpty).join(', ');
-      return 'Login ID "$id" not found for this company. '
-             'Use the Login ID from Admin → Employees (e.g. $known)';
+      final known = pool.map((e) => e.loginId).where((lid) => lid.isNotEmpty).take(3).join(', ');
+      return 'Login ID "$loginId" not found for this company. '
+             'Check the Login ID in Admin → Employees. '
+             '${known.isNotEmpty ? "Known IDs: $known" : "Make sure you are using the latest app version."}';
     }
     final byPass = byId.where((e) => e.passwordHash.trim() == pass).toList();
     if (byPass.isEmpty) return 'Login ID found but password is wrong. Use the password set in Admin panel.';
