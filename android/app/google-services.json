@@ -1,14 +1,13 @@
 {
   "project_info": {
-    "project_number": "664539478420",
-    "firebase_url": "https://abhishek-international-hrms-default-rtdb.firebaseio.com",
-    "project_id": "abhishek-international-hrms",
-    "storage_bucket": "abhishek-international-hrms.firebasestorage.app"
+    "project_number": "577255859755",
+    "project_id": "abhishek-international-hrm",
+    "storage_bucket": "abhishek-international-hrm.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:664539478420:android:4ae779119e9371fba77781",
+        "mobilesdk_app_id": "1:577255859755:android:f9b5a1ca3962ef8e432c6e",
         "android_client_info": {
           "package_name": "com.abhishekattendance.attend"
         }
@@ -16,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBLK5gGyHAPn-vqlxNfsl0U31wNOfiUz2Y"
+          "current_key": "AIzaSyDdl0m1eZnJvpq-dJJ9GJ0Kvws_8fXyH2M"
         }
       ],
       "services": {

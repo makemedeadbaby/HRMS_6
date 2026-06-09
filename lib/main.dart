@@ -62,6 +62,7 @@ void main() async {
 
       // Setup scheduler foreground handler (break-timer stop logic)
       NotificationScheduler.setupForegroundScheduledHandler();
+
       debugPrint('[Firebase] ✅ Initialized — project: abhishek-international-hrms'
           ' | platform: ${kIsWeb ? "web" : "android"}');
     } on FirebaseException catch (e) {

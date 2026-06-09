@@ -228,42 +228,70 @@ class FcmService {
     return await _fcm.getInitialMessage();
   }
 
-  // ── Collect tokens for target audience ───────────────────────────────────
-  static Future<List<String>> _getTargetTokens({
+
+  // ── Fetch FCM tokens fresh from Firestore for a target audience ──────────
+  // Reads directly from Firestore so we always get the latest tokens,
+  // even if the in-memory employee list has stale/empty fcmToken values.
+  static Future<List<String>> _getTokensFromFirestore({
     required String targetType,
     required String targetValue,
-    required List<Map<String, dynamic>> allEmployees,
   }) async {
-    List<Map<String, dynamic>> targets;
-    switch (targetType) {
-      case 'global':
-      case 'all':
-        targets = allEmployees;
-        break;
-      case 'company':
-        targets = allEmployees.where((e) =>
-            e['company_id'] == targetValue || e['company_name'] == targetValue).toList();
-        break;
-      case 'department':
-        targets = allEmployees.where((e) => e['department'] == targetValue).toList();
-        break;
-      case 'shift':
-        targets = allEmployees.where((e) => e['shift_type'] == targetValue).toList();
-        break;
-      case 'individual':
-      case 'employee':
-        targets = allEmployees.where((e) => e['id'] == targetValue).toList();
-        break;
-      default:
-        targets = [];
+    try {
+      Query<Map<String, dynamic>> query =
+          FirebaseFirestore.instance.collection('employees');
+
+      // Apply filter based on target type
+      switch (targetType.toLowerCase()) {
+        case 'company':
+          query = query.where('company_name', isEqualTo: targetValue);
+          break;
+        case 'department':
+          query = query.where('department', isEqualTo: targetValue);
+          break;
+        case 'shift':
+          query = query.where('shift_type', isEqualTo: targetValue);
+          break;
+        case 'individual':
+        case 'employee':
+          // targetValue is the employee doc ID
+          final doc = await FirebaseFirestore.instance
+              .collection('employees')
+              .doc(targetValue)
+              .get();
+          if (doc.exists) {
+            final d = doc.data()!;
+            final t = (d['fcm_token'] as String?) ??
+                (d['fcmToken'] as String?) ?? '';
+            return t.isNotEmpty ? [t] : [];
+          }
+          return [];
+        case 'global':
+        case 'all':
+        default:
+          break; // no filter — all employees
+      }
+
+      final snap = await query.get();
+      final tokens = <String>[];
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        final t = (d['fcm_token'] as String?) ??
+            (d['fcmToken'] as String?) ?? '';
+        if (t.isNotEmpty) tokens.add(t);
+      }
+      debugPrint('[FCM] _getTokensFromFirestore: found ${tokens.length} tokens '
+          'for $targetType:$targetValue');
+      return tokens;
+    } catch (e) {
+      debugPrint('[FCM] _getTokensFromFirestore error: $e');
+      return [];
     }
-    return targets
-        .map((e) => (e['fcm_token'] as String?) ?? '')
-        .where((t) => t.isNotEmpty)
-        .toList();
   }
 
   // ── Write to fcm_send_queue → Cloud Function picks up instantly ───────────
+  // Works on BOTH web (admin portal) and Android (employee app).
+  // The Cloud Function processFcmSendQueue fires on Firestore write regardless
+  // of which platform created the document.
   static Future<void> sendPushToTargets({
     required String title,
     required String message,
@@ -272,17 +300,20 @@ class FcmService {
     required List<Map<String, dynamic>> allEmployees,
     String priority = 'Normal',
   }) async {
-    if (kIsWeb) return;
     try {
-      final tokens = await _getTargetTokens(
+      // Always fetch tokens fresh from Firestore — in-memory list may be stale
+      final tokens = await _getTokensFromFirestore(
         targetType: targetType,
         targetValue: targetValue,
-        allEmployees: allEmployees,
       );
+
       if (tokens.isEmpty) {
-        debugPrint('[FCM] No tokens for $targetType:$targetValue');
-        return;
+        debugPrint('[FCM] ⚠️  No FCM tokens found for $targetType:$targetValue — '
+            'employees may not have logged in yet to register tokens');
+        // Still write the queue doc — Cloud Function will log the failure
+        // and the admin can retry once employees have registered
       }
+
       await FirebaseFirestore.instance.collection('fcm_send_queue').add({
         'title': title,
         'body': message,
@@ -293,9 +324,9 @@ class FcmService {
         'sent_at': FieldValue.serverTimestamp(),
         'processed': false,
       });
-      debugPrint('[FCM] Queued to ${tokens.length} tokens');
+      debugPrint('[FCM] ✅ Queued notification to ${tokens.length} device(s)');
     } catch (e) {
-      debugPrint('[FCM] sendPushToTargets error: $e');
+      debugPrint('[FCM] ❌ sendPushToTargets error: $e');
     }
   }
 
