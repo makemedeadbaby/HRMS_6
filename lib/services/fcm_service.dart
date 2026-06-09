@@ -15,21 +15,11 @@ import 'local_notification_service.dart';
 //   2. Must call Firebase.initializeApp() itself — it runs in a FRESH isolate
 //   3. Must create its OWN FlutterLocalNotificationsPlugin instance
 //   4. @pragma('vm:entry-point') annotation is REQUIRED
-//
-// For FOREGROUND: FcmService.setupForegroundHandler() → shows local notif
-// For BACKGROUND/KILLED: OS shows it automatically from notification{} block
-//   Background isolate also runs to handle data-only messages as backup
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── BACKGROUND HANDLER — top-level, runs in separate Dart isolate ─────────────
-// This is the MOST CRITICAL function for background/killed state notifications.
-// The OS will show the notification from the FCM notification{} block,
-// but this handler also shows it via flutter_local_notifications as a backup.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Step 1: Initialize Flutter bindings in this fresh isolate
-  // (not needed for newer flutter_local_notifications but safe to have)
-
   // Step 2: Initialize Firebase in THIS isolate
   if (Firebase.apps.isEmpty) {
     await Firebase.initializeApp(
@@ -96,9 +86,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     payload: type,
   );
 
-  if (kDebugMode) {
-    debugPrint('[FCM BG] ✅ Shown background notification: "$title"');
-  }
+  debugPrint('[FCM BG] ✅ Shown background notification: "$title"');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,10 +101,26 @@ class FcmService {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   }
 
+  // ── Listen for token refresh events ──────────────────────────────────────
+  // This fires when FCM rotates the token (network change, app reinstall, etc.)
+  // MUST be called after Firebase.initializeApp()
+  static void setupTokenRefreshHandler({
+    required void Function(String token) onRefresh,
+  }) {
+    if (kIsWeb) return;
+    _fcm.onTokenRefresh.listen((newToken) {
+      debugPrint('[FCM] 🔄 Token refreshed: ${newToken.substring(0, 20)}...');
+      onRefresh(newToken);
+    });
+  }
+
   // ── Request permission + get FCM token ────────────────────────────────────
+  // Returns the token string, or null if permission denied / unavailable.
+  // Logs every step so we can diagnose failures.
   static Future<String?> getToken() async {
     if (kIsWeb) return null;
     try {
+      debugPrint('[FCM] Requesting notification permission...');
       final settings = await _fcm.requestPermission(
         alert: true,
         badge: true,
@@ -124,61 +128,85 @@ class FcmService {
         provisional: false,
       );
 
+      debugPrint('[FCM] Permission status: ${settings.authorizationStatus}');
+
       if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        if (kDebugMode) debugPrint('[FCM] Permission DENIED');
+        debugPrint('[FCM] ❌ Permission DENIED by user — notifications will not work');
+        debugPrint('[FCM]    → Tell user to go to Settings > Apps > Abhishek Attendance > Notifications');
         return null;
       }
 
-      // Tell FCM to also show notification when app is in foreground
+      // Tell FCM to show notification when app is in foreground (iOS)
       await _fcm.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
         sound: true,
       );
 
+      debugPrint('[FCM] Calling getToken()...');
       final token = await _fcm.getToken();
-      if (kDebugMode) debugPrint('[FCM] Token obtained: ${token?.substring(0, 20)}...');
+
+      if (token == null || token.isEmpty) {
+        debugPrint('[FCM] ❌ getToken() returned null/empty — '
+            'possible causes: no internet, Google Play Services issue, '
+            'or Firebase project misconfiguration');
+        return null;
+      }
+
+      debugPrint('[FCM] ✅ Token obtained: ${token.substring(0, 30)}...');
       return token;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[FCM] getToken error: $e');
+    } catch (e, stack) {
+      debugPrint('[FCM] ❌ getToken() exception: $e');
+      debugPrint('[FCM]    Stack: $stack');
       return null;
     }
   }
 
   // ── Save FCM token to Firestore ───────────────────────────────────────────
-  static Future<void> saveTokenToFirestore({
+  // Uses both update() and set(merge:true) fallback.
+  // Also logs success/failure explicitly.
+  static Future<bool> saveTokenToFirestore({
     required String employeeId,
     required String token,
   }) async {
-    if (token.isEmpty || employeeId.isEmpty) return;
+    if (token.isEmpty || employeeId.isEmpty) {
+      debugPrint('[FCM] saveTokenToFirestore: skipped — '
+          'token.isEmpty=${token.isEmpty} employeeId.isEmpty=${employeeId.isEmpty}');
+      return false;
+    }
+    debugPrint('[FCM] Saving token to Firestore for employee: $employeeId');
     try {
       await FirebaseFirestore.instance
           .collection('employees')
           .doc(employeeId)
           .update({'fcm_token': token});
-      if (kDebugMode) debugPrint('[FCM] Token saved for $employeeId');
-    } catch (_) {
+      debugPrint('[FCM] ✅ Token saved (update) for $employeeId');
+      return true;
+    } catch (e1) {
+      debugPrint('[FCM] update() failed ($e1), trying set(merge:true)...');
       try {
         await FirebaseFirestore.instance
             .collection('employees')
             .doc(employeeId)
             .set({'fcm_token': token}, SetOptions(merge: true));
+        debugPrint('[FCM] ✅ Token saved (set/merge) for $employeeId');
+        return true;
       } catch (e2) {
-        if (kDebugMode) debugPrint('[FCM] saveToken fallback error: $e2');
+        debugPrint('[FCM] ❌ saveTokenToFirestore FAILED for $employeeId: $e2');
+        return false;
       }
     }
   }
 
   // ── Foreground handler — shows heads-up banner via local notifications ────
-  // Called from main.dart AFTER Firebase.initializeApp()
   static void setupForegroundHandler({void Function(RemoteMessage)? onMessage}) {
     if (kIsWeb) return;
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (kDebugMode) {
-        debugPrint('[FCM] FOREGROUND: "${message.notification?.title}" '
-            'type=${message.data["type"]}');
-      }
+      debugPrint('[FCM] FOREGROUND message: '
+          'title="${message.notification?.title}" '
+          'type=${message.data["type"]} '
+          'data=${message.data}');
       // Show as heads-up banner — OS won't do this automatically for foreground
       LocalNotificationService.showFromRemoteMessage(message);
       onMessage?.call(message);
@@ -189,7 +217,7 @@ class FcmService {
   static void setupNotificationOpenHandler({void Function(RemoteMessage)? onOpen}) {
     if (kIsWeb) return;
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      if (kDebugMode) debugPrint('[FCM] Opened from notification: ${message.notification?.title}');
+      debugPrint('[FCM] Opened from notification: ${message.notification?.title}');
       onOpen?.call(message);
     });
   }
@@ -252,7 +280,7 @@ class FcmService {
         allEmployees: allEmployees,
       );
       if (tokens.isEmpty) {
-        if (kDebugMode) debugPrint('[FCM] No tokens for $targetType:$targetValue');
+        debugPrint('[FCM] No tokens for $targetType:$targetValue');
         return;
       }
       await FirebaseFirestore.instance.collection('fcm_send_queue').add({
@@ -265,9 +293,9 @@ class FcmService {
         'sent_at': FieldValue.serverTimestamp(),
         'processed': false,
       });
-      if (kDebugMode) debugPrint('[FCM] Queued to ${tokens.length} tokens');
+      debugPrint('[FCM] Queued to ${tokens.length} tokens');
     } catch (e) {
-      if (kDebugMode) debugPrint('[FCM] sendPushToTargets error: $e');
+      debugPrint('[FCM] sendPushToTargets error: $e');
     }
   }
 

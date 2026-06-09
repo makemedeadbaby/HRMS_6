@@ -86,17 +86,41 @@ export const processScheduledNotifications = functions
 
     for (const doc of snap.docs) {
       const data = doc.data();
-      const token: string = data.fcm_token ?? "";
+      let token: string = data.fcm_token ?? "";
       const title: string = data.title ?? "Abhishek HRMS";
       const body: string  = data.body ?? "";
       const type: NotifType = data.type ?? "custom";
       const employeeId: string = data.employee_id ?? "";
 
+      // ── Token fallback: if the scheduled_notification has no token,
+      //    look it up fresh from the employee doc. This handles the case
+      //    where the token arrived AFTER the notification was scheduled.
+      if (!token && employeeId) {
+        functions.logger.info(
+          `[ScheduledNotifs] Doc ${doc.id} has no fcm_token — fetching from employee doc ${employeeId}`
+        );
+        try {
+          const empSnap = await db.collection("employees").doc(employeeId).get();
+          if (empSnap.exists) {
+            token = empSnap.data()?.fcm_token ?? "";
+            if (token) {
+              functions.logger.info(
+                `[ScheduledNotifs] ✅ Found token from employee doc for ${employeeId}`
+              );
+              // Update the notification doc with the token for future runs
+              await doc.ref.update({ fcm_token: token });
+            }
+          }
+        } catch (e) {
+          functions.logger.warn(`[ScheduledNotifs] Error fetching employee token: ${e}`);
+        }
+      }
+
       if (!token) {
         functions.logger.warn(
-          `[ScheduledNotifs] Doc ${doc.id} has no fcm_token — skipping`
+          `[ScheduledNotifs] Doc ${doc.id} — no token available for ${employeeId}, skipping`
         );
-        // Still mark processed so we don't keep retrying an empty token
+        // Mark processed so we don't loop forever on truly tokenless employees
         batch.update(doc.ref, {
           processed: true,
           processed_at: admin.firestore.FieldValue.serverTimestamp(),
@@ -285,15 +309,20 @@ export const onEmployeeCheckIn = functions
 
     const emp = empSnap.data()!;
     const fcmToken: string   = emp.fcm_token ?? "";
-    const shiftEnd: string   = emp.shift_end_time ?? "";
-    const shiftStart: string = emp.shift_start_time ?? "";
-    const shiftType: string  = emp.shift_type ?? "Day Shift";
+    const shiftEnd: string   = emp.shift_end_time ?? emp.shiftEndTime ?? "";
+    const shiftStart: string = emp.shift_start_time ?? emp.shiftStartTime ?? "";
+    const shiftType: string  = emp.shift_type ?? emp.shiftType ?? "Day Shift";
 
+    // ── Token may be empty on first login — still schedule the docs.
+    //    processScheduledNotifications will do a fresh employee-doc lookup
+    //    when it encounters a doc with no fcm_token, so the notification will
+    //    still fire once the token is saved (within 1 minute of token registration).
     if (!fcmToken) {
       functions.logger.info(
-        `[CheckIn] ${employeeId} has no FCM token — no reminders scheduled`
+        `[CheckIn] ${employeeId} has no FCM token yet — scheduling anyway, ` +
+        `processScheduledNotifications will fetch token when it fires`
       );
-      return;
+      // Don't return — fall through and write the scheduled_notification docs
     }
 
     const now = new Date();

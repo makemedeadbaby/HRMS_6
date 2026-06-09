@@ -179,15 +179,22 @@ class NotificationScheduler {
     required DateTime scheduledAt,
     required String type,
   }) async {
-    if (fcmToken.isEmpty || employeeId.isEmpty) return;
+    // employeeId is required; fcmToken may be empty — Cloud Function will
+    // fetch the latest token from the employee doc itself when it fires.
+    if (employeeId.isEmpty) return;
 
     try {
       // Remove any existing unprocessed notifications of same type for employee
       await _cancelPendingNotifications(employeeId: employeeId, type: type);
 
+      // Write the Firestore doc. If fcmToken is empty the Cloud Function
+      // (processScheduledNotifications) will skip this doc with error='no_token'
+      // BUT onEmployeeCheckIn already writes its OWN scheduled_notification
+      // using the token it reads fresh from the employee doc — so this doc
+      // is a client-side supplement only. Still write it in case token loads later.
       await _db.collection('scheduled_notifications').add({
         'employee_id': employeeId,
-        'fcm_token': fcmToken,
+        'fcm_token': fcmToken, // may be '' — CF logs 'no_token' and skips
         'title': title,
         'body': body,
         'scheduled_at': Timestamp.fromDate(scheduledAt),

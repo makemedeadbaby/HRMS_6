@@ -146,6 +146,27 @@ class AppProvider extends ChangeNotifier {
     await _restoreSession();
     _isInitialized = true;
     notifyListeners();
+
+    // ── Setup FCM token refresh listener ─────────────────────────────────────
+    // Fires whenever FCM rotates the token (network change, reinstall, etc.)
+    // We re-save it to Firestore immediately so Cloud Functions can reach the device.
+    if (!kIsWeb) {
+      FcmService.setupTokenRefreshHandler(
+        onRefresh: (newToken) {
+          final empId = _currentEmployee?.id ?? '';
+          if (empId.isNotEmpty) {
+            debugPrint('[AppProvider] FCM token refreshed — saving for $empId');
+            FcmService.saveTokenToFirestore(employeeId: empId, token: newToken);
+            // Update in-memory + SharedPreferences
+            _currentEmployee = _currentEmployee!.copyWith(fcmToken: newToken);
+            SharedPreferences.getInstance().then((prefs) {
+              prefs.setString('current_employee',
+                  jsonEncode(_currentEmployee!.toMap()));
+            });
+          }
+        },
+      );
+    }
   }
 
   static const Set<String> _builtInCompanyIds = {'c_001', 'c_002', 'c_003', 'c_004'};
@@ -623,19 +644,35 @@ class AppProvider extends ChangeNotifier {
     await _persistAttendanceRecord(att);
     notifyListeners();
 
-    // Schedule logout reminder (1 hour before shift end) via FCM
-    if (!kIsWeb && _currentEmployee != null && _currentEmployee!.fcmToken.isNotEmpty) {
+    // Schedule logout + shift reminders via FCM.
+    // The Cloud Function onEmployeeCheckIn is the SERVER-SIDE guarantee —
+    // it fires on the attendance doc creation and reads the FCM token from
+    // Firestore directly, so it works even if the client token isn't cached yet.
+    //
+    // We still call the client-side scheduler as an additional attempt,
+    // but WITHOUT the fcmToken guard — the scheduler handles empty tokens gracefully.
+    if (!kIsWeb && _currentEmployee != null) {
+      final empId   = _currentEmployee!.id;
+      final token   = _currentEmployee!.fcmToken; // may be empty on first login
+      final shiftEnd   = _currentEmployee!.shiftEndTime;
+      final shiftStart = _currentEmployee!.shiftStartTime;
+      final shiftType  = _currentEmployee!.shiftType;
+
+      debugPrint('[CheckIn] Scheduling reminders — empId=$empId token='
+          '${token.isEmpty ? "EMPTY (Cloud Function will handle)" : "${token.substring(0, 20)}..."}');
+
+      // Even with empty token the scheduler writes to Firestore scheduled_notifications
+      // Cloud Function picks it up and uses the token stored in the employee doc
       NotificationScheduler.scheduleLogoutReminder(
-        employeeId: _currentEmployee!.id,
-        fcmToken: _currentEmployee!.fcmToken,
-        shiftEndTime: _currentEmployee!.shiftEndTime,
+        employeeId: empId,
+        fcmToken: token, // empty is OK — CF reads fresh from Firestore
+        shiftEndTime: shiftEnd,
       );
-      // Also schedule a shift start reminder for tomorrow
       NotificationScheduler.scheduleShiftReminder(
-        employeeId: _currentEmployee!.id,
-        fcmToken: _currentEmployee!.fcmToken,
-        shiftStartTime: _currentEmployee!.shiftStartTime,
-        shiftType: _currentEmployee!.shiftType,
+        employeeId: empId,
+        fcmToken: token,
+        shiftStartTime: shiftStart,
+        shiftType: shiftType,
       );
     }
   }
